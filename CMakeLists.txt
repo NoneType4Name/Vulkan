@@ -14,7 +14,7 @@ find_package(glfw3 REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(glm)
 
-add_executable(${EXECUTABLE_NAME} main.cpp)
+add_executable(${EXECUTABLE_NAME} src/main.cpp)
 
 target_link_libraries(${EXECUTABLE_NAME} Vulkan::Vulkan)
 target_include_directories(${EXECUTABLE_NAME} PUBLIC ${glfw3_INCLUDE_DIRS})

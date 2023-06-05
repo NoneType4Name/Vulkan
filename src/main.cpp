@@ -9,6 +9,9 @@
 #include <vector>
 #include <format>
 #include <string>
+#include <map>
+#include <optional>
+
 using namespace std;
 
 class App
@@ -16,8 +19,7 @@ class App
 public:
     const uint16_t WIDTH{1000};
     const uint16_t HEIGHT{1000};
-    const vector<const char *> ValidationLayers = {
-        "VK_LAYER_KHRONOS_validation"};
+    const vector<const char *> ValidationLayers{"VK_LAYER_KHRONOS_validation"};
 
     #ifdef NDEBUG
         const bool EnableValidationLayers = false;
@@ -37,6 +39,7 @@ public:
 private:
     GLFWwindow *window;
     VkInstance instance;
+    VkPhysicalDevice PhysicalDevice{VK_NULL_HANDLE};
     VkDebugUtilsMessengerEXT DebugMessenger;
     VkDebugUtilsMessengerCreateInfoEXT DbgMessengerCreateInfo{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
@@ -45,8 +48,7 @@ private:
         VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
         VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
         DebugCallback,
-        this
-    };
+        this};
 
     void initWindow()
     {
@@ -60,6 +62,7 @@ private:
     {
         CreateVKinstance();
         SetupDebugMessenger();
+        GetPhysicalDevice();
     }
 
     void mainLoop()
@@ -79,6 +82,41 @@ private:
     }
 
     // Support Functios
+    void GetPhysicalDevice()
+    {
+        uint32_t CountPhysicalDevices{0};
+        vkEnumeratePhysicalDevices(instance, &CountPhysicalDevices, nullptr);
+        if (!CountPhysicalDevices)
+        {
+            spdlog::critical("Vulkan find {} Physical Devices.", CountPhysicalDevices);
+            throw runtime_error("Failed to find Physical Devices.");
+        }
+        vector<VkPhysicalDevice>PhysicalDevices{CountPhysicalDevices};
+        vkEnumeratePhysicalDevices(instance, &CountPhysicalDevices, PhysicalDevices.data());
+        for (const auto& device : PhysicalDevices)
+        {
+            // if (isDeviceSuitable(device))
+            // {
+            //     PhysicalDevice = device;
+            //     break;
+            // }
+            VkPhysicalDeviceProperties dProperties;
+            VkPhysicalDeviceFeatures dFeatures;
+            vkGetPhysicalDeviceProperties(device, &dProperties);
+            vkGetPhysicalDeviceFeatures(device, &dFeatures);
+            // return dProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && dFeatures.geometryShader;
+        }
+        if (PhysicalDevice == VK_NULL_HANDLE){
+            spdlog::critical("Instance haven't suitable Physical Devices.");
+            throw runtime_error("Failed to find suitable Physical Devices.");
+        }
+    }
+
+    // bool isDeviceSuitable(VkPhysicalDevice device)
+    // {
+        
+    // }
+    
     void CreateVKinstance()
     {
         if (EnableValidationLayers && !CheckValidationLayers())
@@ -117,7 +155,7 @@ private:
             CreateInfo.pNext = nullptr;
         }
 
-        vector<const char*> Extensions(glfwExtensions, glfwExtensions + glfwExtensionsCount);
+        vector<const char*> Extensions{glfwExtensions, glfwExtensions + glfwExtensionsCount};
         Extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
         CreateInfo.enabledExtensionCount = static_cast<uint32_t>(Extensions.size());
         CreateInfo.ppEnabledExtensionNames = Extensions.data();
@@ -133,7 +171,7 @@ private:
     {
         uint32_t Count;
         vkEnumerateInstanceLayerProperties(&Count, NULL);
-        vector<VkLayerProperties> AviableLayers(Count);
+        vector<VkLayerProperties> AviableLayers{Count};
         vkEnumerateInstanceLayerProperties(&Count, AviableLayers.data());
         for (const char *lName : ValidationLayers)
         {
@@ -203,10 +241,6 @@ private:
             return VK_FALSE;
     }
 
-    // VkDebugUtilsMessengerCreateInfoEXT DbgUtilsMessengerCreateInfo(){
-    //     return CreateInfo;
-    // }
-
     // Ext Functions load.
 
     VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT *pCreateInfo, const VkAllocationCallbacks *pAllocator, VkDebugUtilsMessengerEXT *pMessenger)
@@ -224,19 +258,28 @@ private:
 
 int main(int argc, char *argv[])
 {
-
-    App app;
     try
     {
         spdlog::set_level(spdlog::level::trace);
+        spdlog::debug("-- Start logging. ---");
+    }
+    catch(const exception &e)
+    {
+        cerr << e.what() << endl;
+    }
+    
+    App app;
+    try
+    {
         app.run();
     }
     catch (const exception &e)
     {
         cerr << e.what() << endl;
+        spdlog::critical("{}\n Exit with error code {}.", e.what(), EXIT_FAILURE);
         return EXIT_FAILURE;
     }
-
+    spdlog::info("Exit with code {}.", EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }
 
