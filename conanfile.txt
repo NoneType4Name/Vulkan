@@ -1,0 +1,8 @@
+[requires]
+glfw/[>=3.3.8]
+glm/[>=cci.20230113]
+spdlog/[>=1.11.0]
+
+[generators]
+CMakeDeps
+CMakeToolchain

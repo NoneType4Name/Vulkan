@@ -1,6 +1,7 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <vulkan/vk_enum_string_helper.h>
+#include <spdlog/spdlog.h>
 #include <iostream>
 #include <stdexcept>
 #include <cstdlib>
@@ -8,8 +9,6 @@
 #include <vector>
 #include <format>
 #include <string>
-
-// #include <P7_Client.h>
 using namespace std;
 
 class App
@@ -185,22 +184,22 @@ private:
                 StrMessageType = string_VkDebugUtilsMessageTypeFlagsEXT(MessageType);
                 break;
             }
-            // switch (MessageLevel)
-            // {
-            // case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
-            //     // debug
-            //     break;
-            // case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
-            //     // info
-            //     break;
-            // case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
-            //     // warn
-            //     break;
-            // case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
-            //     // error
-            //     break;
-            // }
-            cerr << "Validation layer get " << StrMessageType << ": " << CallbackData->pMessage << endl;
+            switch (MessageLevel)
+            {
+            case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
+                spdlog::debug("{}message: {}", (MessageType == VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT ? "":format("Type: {}, ", StrMessageType)), CallbackData->pMessage);
+                break;
+            case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
+                spdlog::info("{}message: {}", (MessageType == VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT ? "":format("Type: {}, ", StrMessageType)), CallbackData->pMessage);
+                break;
+            case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
+                spdlog::warn("{}message: {}", (MessageType == VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT ? "":format("Type: {}, ", StrMessageType)), CallbackData->pMessage);
+                break;
+            case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
+                spdlog::error("{}message: {}", (MessageType == VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT ? "":format("Type: {}, ", StrMessageType)), CallbackData->pMessage);
+                break;
+            }
+            // cerr << "Validation layer get " << StrMessageType << ": " << CallbackData->pMessage << endl;
             return VK_FALSE;
     }
 
@@ -225,9 +224,11 @@ private:
 
 int main(int argc, char *argv[])
 {
+
     App app;
     try
     {
+        spdlog::set_level(spdlog::level::trace);
         app.run();
     }
     catch (const exception &e)
