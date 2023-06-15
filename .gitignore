@@ -1,0 +1,6 @@
+.gitignore
+build/
+p7/
+p7.lib
+.vscode
+CMakeUserPresets.json
