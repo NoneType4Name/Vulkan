@@ -62,6 +62,8 @@ private:
     GLFWwindow *window;
     VkInstance instance;
     VkPhysicalDevice PhysicalDevice{VK_NULL_HANDLE};
+    VkPhysicalDeviceProperties PhysicalDeviceProperties;
+    VkPhysicalDeviceFeatures PhysicalDeviceFeatures;
     VkDebugUtilsMessengerEXT DebugMessenger;
     VkDebugUtilsMessengerCreateInfoEXT DbgMessengerCreateInfo{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
@@ -148,37 +150,72 @@ private:
         }
         std::vector<VkPhysicalDevice>PhysicalDevices{CountPhysicalDevices};
         vkEnumeratePhysicalDevices(instance, &CountPhysicalDevices, PhysicalDevices.data());
-        if (!CountPhysicalDevices-1) PhysicalDevice = PhysicalDevices[0];
-        // for (const auto& device : PhysicalDevices)
-        // {
-        //     if (isDeviceSuitable(device))
-        //     {
-        //         PhysicalDevice = device;
-        //         break;
-        //     }
-        //     VkPhysicalDeviceProperties dProperties;
-        //     VkPhysicalDeviceFeatures dFeatures;
-        //     vkGetPhysicalDeviceProperties(device, &dProperties);
-        //     vkGetPhysicalDeviceFeatures(device, &dFeatures);
-        //     // return dProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && dFeatures.geometryShader;
-        // }
-        // if (PhysicalDevice == VK_NULL_HANDLE){
-        //     SPDLOG_CRITICAL("Instance haven't suitable Physical Devices.");
-        //     throw std::runtime_error("Failed to find suitable Physical Devices.");
-        // }
+        // if (!CountPhysicalDevices-1) PhysicalDevice = PhysicalDevices[0];
+        for (const auto& device : PhysicalDevices)
+        {
+            if (isDeviceSuitable(device)) break;
+            
+            // return dProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && dFeatures.geometryShader;
+        }
+        if (PhysicalDevice == VK_NULL_HANDLE){
+            PhysicalDeviceProperties = {};
+            PhysicalDeviceFeatures = {};
+            SPDLOG_CRITICAL("Instance haven't suitable Physical Devices.");
+            throw std::runtime_error("Failed to find suitable Physical Devices.");
+        }
+        SPDLOG_INFO("Selected {}.", PhysicalDeviceProperties.deviceName);
+    }
+
+    bool isDeviceSuitable(VkPhysicalDevice device)
+    {
+        vkGetPhysicalDeviceProperties(device, &PhysicalDeviceProperties);
+        vkGetPhysicalDeviceFeatures(device, &PhysicalDeviceFeatures);
+        QueueFamilyIndices result{findQueueFamilies(device)};
+        if (!result.graphicsFamily.has_value()){SPDLOG_CRITICAL("Graphic family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;};
+        if (!result.computeFamily.has_value()) {SPDLOG_CRITICAL("Compute family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;};
+        if (!result.transferFamily.has_value()) {SPDLOG_CRITICAL("Transfer family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;}
+        if (!result.sparseBindingFamily.has_value()) {SPDLOG_CRITICAL("Sparse binding family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;}
+        // if (!result.protectMemoryFamily.has_value()) {SPDLOG_CRITICAL("Protect memory family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;}
+        if (!result.videoDecodeFamily.has_value()) {SPDLOG_CRITICAL("Video decode family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;}
+        // if (!result.videoEncodeFamily.has_value()) {SPDLOG_CRITICAL("Video encode family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;}
+        // if (!result.opticalFlowFamily.has_value()) {SPDLOG_CRITICAL("Optical Flow family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;}
+        PhysicalDevice = device;
+        return true;
     }
     struct QueueFamilyIndices {
         std::optional<uint32_t> graphicsFamily;
+        std::optional<uint32_t> computeFamily;
+        std::optional<uint32_t> transferFamily;
+        std::optional<uint32_t> sparseBindingFamily;
+        // std::optional<uint32_t> protectMemoryFamily;
+        std::optional<uint32_t> videoDecodeFamily;
+        // std::optional<uint32_t> videoEncodeFamily;
+        // std::optional<uint32_t> opticalFlowFamily;
     };
 
     QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
         QueueFamilyIndices indices;
+        uint32_t queueCount{0};
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueCount, nullptr);
+        std::vector<VkQueueFamilyProperties>QueueFamilies(queueCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueCount, QueueFamilies.data());
+        for (const auto &queueF : QueueFamilies)
+        {
+            if (queueF.queueFlags & VK_QUEUE_GRAPHICS_BIT) indices.graphicsFamily = 1;
+            if (queueF.queueFlags & VK_QUEUE_COMPUTE_BIT) indices.computeFamily = 1;
+            if (queueF.queueFlags & VK_QUEUE_TRANSFER_BIT) indices.transferFamily = 1;
+            if (queueF.queueFlags & VK_QUEUE_SPARSE_BINDING_BIT) indices.sparseBindingFamily = 1;
+            // if (queueF.queueFlags & VK_QUEUE_PROTECTED_BIT) indices.protectMemoryFamily = 1;
+            if (queueF.queueFlags & VK_QUEUE_VIDEO_DECODE_BIT_KHR) indices.videoDecodeFamily = 1;
+            // if (queueF.queueFlags & VK_QUEUE_VIDEO_ENCODE_BIT_KHR) indices.videoEncodeFamily = 1;
+            // if (queueF.queueFlags & VK_QUEUE_OPTICAL_FLOW_BIT_NV) indices.opticalFlowFamily = 1;
+        }
+
+
         return indices;
     }
 
-    // bool isDeviceSuitable(VkPhysicalDevice device)
-    // {
-    // }
+
     
     void CreateVKinstance()
     {

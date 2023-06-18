@@ -10,7 +10,7 @@ namespace
     {
         GLFWinit()
         {
-            spdlog::set_level(spdlog::level::err);
+            spdlog::set_level(spdlog::level::trace);
             spdlog::set_pattern("[func %!] [line %#] [%H:%M:%S.%e] [%^%l%$] %v");
             SPDLOG_DEBUG("--- Start logging. ---");
             // exit(EXIT_FAILURE);
