@@ -16,7 +16,10 @@ find_package(spdlog REQUIRED)
 find_package(glm)
 # find_package(imgui)
 
-add_executable(${EXECUTABLE_NAME} src/main.cpp)
+file(GLOB PROJECT_SRC "src/*.cpp" "src/*.h")
+
+
+add_executable(${EXECUTABLE_NAME} ${PROJECT_SRC})
 
 target_link_libraries(${EXECUTABLE_NAME} Vulkan::Vulkan)
 target_include_directories(${EXECUTABLE_NAME} PUBLIC ${glfw3_INCLUDE_DIRS})
