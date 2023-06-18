@@ -11,21 +11,56 @@
 #include <string>
 #include <map>
 #include <optional>
+// #include <stdlib.h>
 
-using namespace std;
+namespace
+{
+    static void GLFWerrorCallback(int code, const char *data)
+    {
+        spdlog::critical("GLFW ERROR {}: {}", code, data);
+    }
+    struct GLFWinit
+    {
+        GLFWinit()
+        {
+            spdlog::set_level(spdlog::level::trace);
+            spdlog::debug("--- Start logging. ---");
+            int32_t code{glfwInit()};
+            if ( code==GLFW_TRUE )
+            {
+                spdlog::debug("GLFW{} inititialized", glfwGetVersionString());
+                glfwSetErrorCallback( GLFWerrorCallback );
+                exit(-1);
+            }
+            else
+            {
+                spdlog::critical("GLFW not initialized, errno{}", code);
+            }
+        }
+    };
+}
 
 class App
 {
 public:
-    const uint16_t WIDTH{1000};
-    const uint16_t HEIGHT{1000};
-    const vector<const char *> ValidationLayers{"VK_LAYER_KHRONOS_validation"};
+    const uint16_t WIDTH;
+    const uint16_t HEIGHT;
+    std::string TITLE;
+    const std::vector<const char *> ValidationLayers{"VK_LAYER_KHRONOS_validation"};
 
     #ifdef NDEBUG
         const bool EnableValidationLayers = false;
     #else
         const bool EnableValidationLayers = true;
     #endif
+    App(uint16_t width, uint16_t height, const char * title) : WIDTH{width}, HEIGHT{height}, TITLE{title}
+    {
+        run();
+    }
+    ~App()
+    {
+        cleanup();
+    }
 
     void run()
     {
@@ -33,7 +68,6 @@ public:
         initWindow();
         CheckValidationLayers();
         mainLoop();
-        cleanup();
     }
 
 private:
@@ -89,9 +123,9 @@ private:
         if (!CountPhysicalDevices)
         {
             spdlog::critical("Vulkan find {} Physical Devices.", CountPhysicalDevices);
-            throw runtime_error("Failed to find Physical Devices.");
+            throw std::runtime_error("Failed to find Physical Devices.");
         }
-        vector<VkPhysicalDevice>PhysicalDevices{CountPhysicalDevices};
+        std::vector<VkPhysicalDevice>PhysicalDevices{CountPhysicalDevices};
         vkEnumeratePhysicalDevices(instance, &CountPhysicalDevices, PhysicalDevices.data());
         for (const auto& device : PhysicalDevices)
         {
@@ -108,7 +142,7 @@ private:
         }
         if (PhysicalDevice == VK_NULL_HANDLE){
             spdlog::critical("Instance haven't suitable Physical Devices.");
-            throw runtime_error("Failed to find suitable Physical Devices.");
+            throw std::runtime_error("Failed to find suitable Physical Devices.");
         }
     }
 
@@ -120,7 +154,7 @@ private:
     void CreateVKinstance()
     {
         if (EnableValidationLayers && !CheckValidationLayers())
-            throw runtime_error("Unavilable validation layer."); // VLayers
+            throw std::runtime_error("Unavilable validation layer."); // VLayers
 
         uint32_t glfwExtensionsCount{0};
         const char **glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionsCount);
@@ -128,7 +162,7 @@ private:
         // as func name: void ChekForSupportAllExtensions.
         uint32_t glfwAvailableExtensionsCount{0};
         vkEnumerateInstanceExtensionProperties(nullptr, &glfwAvailableExtensionsCount, nullptr);
-        vector<VkExtensionProperties> AvailableExtensions(glfwAvailableExtensionsCount);
+        std::vector<VkExtensionProperties> AvailableExtensions(glfwAvailableExtensionsCount);
         vkEnumerateInstanceExtensionProperties(nullptr, &glfwAvailableExtensionsCount, AvailableExtensions.data());
         // Extension is Available?.
 
@@ -155,7 +189,7 @@ private:
             CreateInfo.pNext = nullptr;
         }
 
-        vector<const char*> Extensions{glfwExtensions, glfwExtensions + glfwExtensionsCount};
+        std::vector<const char*> Extensions{glfwExtensions, glfwExtensions + glfwExtensionsCount};
         Extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
         CreateInfo.enabledExtensionCount = static_cast<uint32_t>(Extensions.size());
         CreateInfo.ppEnabledExtensionNames = Extensions.data();
@@ -163,7 +197,7 @@ private:
         VkResult InstanceCreateCode = vkCreateInstance(&CreateInfo, nullptr, &instance);
         if (InstanceCreateCode != VK_SUCCESS)
         {   
-            throw runtime_error(format("Failed create instance, error code: {}.", string_VkResult(InstanceCreateCode)));
+            throw std::runtime_error(std::format("Failed create instance, error code: {}.", string_VkResult(InstanceCreateCode)));
         }
     }
 
@@ -171,7 +205,7 @@ private:
     {
         uint32_t Count;
         vkEnumerateInstanceLayerProperties(&Count, NULL);
-        vector<VkLayerProperties> AviableLayers{Count};
+        std::vector<VkLayerProperties> AviableLayers{Count};
         vkEnumerateInstanceLayerProperties(&Count, AviableLayers.data());
         for (const char *lName : ValidationLayers)
         {
@@ -186,7 +220,7 @@ private:
             }
             if (!SupportLayer)
             {
-                cout << "Validation layer " << lName << " isn't support.";
+                std::cout << "Validation layer " << lName << " isn't support.";
                 return false;
             }
         }
@@ -197,7 +231,7 @@ private:
     {
         if (!EnableValidationLayers) return;
         VkResult CreateDebugUtilsMessengerEXT_result{CreateDebugUtilsMessengerEXT(instance, &DbgMessengerCreateInfo, nullptr, &DebugMessenger)};
-        if (CreateDebugUtilsMessengerEXT_result != VK_SUCCESS) throw runtime_error(format("Failed to setup Debug Messenger, error: {}.", string_VkResult(CreateDebugUtilsMessengerEXT_result)));
+        if (CreateDebugUtilsMessengerEXT_result != VK_SUCCESS) throw std::runtime_error(std::format("Failed to setup Debug Messenger, error: {}.", string_VkResult(CreateDebugUtilsMessengerEXT_result)));
     }
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
@@ -205,7 +239,7 @@ private:
         VkDebugUtilsMessageTypeFlagsEXT MessageType,
         const VkDebugUtilsMessengerCallbackDataEXT *CallbackData,
         void *UserData){
-            string StrMessageType;
+            std::string StrMessageType;
             switch (MessageType)
             {
             case VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT:
@@ -257,25 +291,14 @@ private:
 };
 
 int main(int argc, char *argv[])
-{
+{    
     try
     {
-        spdlog::set_level(spdlog::level::trace);
-        spdlog::debug("-- Start logging. ---");
+        App app{1920, 1080, "HV"};
     }
-    catch(const exception &e)
+    catch (const std::exception &e)
     {
-        cerr << e.what() << endl;
-    }
-    
-    App app;
-    try
-    {
-        app.run();
-    }
-    catch (const exception &e)
-    {
-        cerr << e.what() << endl;
+        std::cerr << e.what() << std::endl;
         spdlog::critical("{}\n Exit with error code {}.", e.what(), EXIT_FAILURE);
         return EXIT_FAILURE;
     }
