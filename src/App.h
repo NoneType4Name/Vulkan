@@ -46,8 +46,8 @@ public:
     {
         if (EnableValidationLayers) DestroyDebugUtilsMessengerEXT(instance, DebugMessenger, nullptr);
         vkDestroyInstance(instance, NULL);
+        vkDestroyDevice(LogicalDevice, NULL);
         glfwDestroyWindow(window);
-        glfwTerminate();
     }
 
     void run()
@@ -62,8 +62,11 @@ private:
     GLFWwindow *window;
     VkInstance instance;
     VkPhysicalDevice PhysicalDevice{VK_NULL_HANDLE};
+    VkDevice LogicalDevice;
+    VkQueue LogicalDeviceGraphickQueue;
     VkPhysicalDeviceProperties PhysicalDeviceProperties;
     VkPhysicalDeviceFeatures PhysicalDeviceFeatures;
+    std::unordered_map<uint16_t, uint32_t> PhysicalDeviceIndices;
     VkDebugUtilsMessengerEXT DebugMessenger;
     VkDebugUtilsMessengerCreateInfoEXT DbgMessengerCreateInfo{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
@@ -128,6 +131,7 @@ private:
         CreateVKinstance();
         SetupDebugMessenger();
         GetPhysicalDevice();
+        CreateLogicalDevice();
     }
 
     void mainLoop()
@@ -166,56 +170,85 @@ private:
         SPDLOG_INFO("Selected {}.", PhysicalDeviceProperties.deviceName);
     }
 
+    void CreateLogicalDevice()
+    {
+        VkDeviceQueueCreateInfo queueCreateInfo{};
+        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueCreateInfo.queueFamilyIndex = PhysicalDeviceIndices[VK_QUEUE_GRAPHICS_BIT];
+        queueCreateInfo.queueCount = 1;
+        float priority[]{1.0f};
+        queueCreateInfo.pQueuePriorities = priority;
+        VkPhysicalDeviceFeatures deviceFeatures{};
+        VkDeviceCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        createInfo.pQueueCreateInfos = &queueCreateInfo;
+        createInfo.queueCreateInfoCount = 1;
+        createInfo.pEnabledFeatures = &deviceFeatures;
+        createInfo.enabledExtensionCount = 0;
+        if (EnableValidationLayers)
+        {
+            createInfo.enabledLayerCount = static_cast<uint32_t>(ValidationLayers.size());
+            createInfo.ppEnabledLayerNames = ValidationLayers.data();
+        }
+        else createInfo.enabledLayerCount = 0;
+        // extension
+
+        VkResult DeviceCreateCode = vkCreateDevice(PhysicalDevice, &createInfo, nullptr, &LogicalDevice);
+        if (DeviceCreateCode != VK_SUCCESS) throw std::runtime_error(std::format("Failed create logic device, error code: {}.", string_VkResult(DeviceCreateCode)));
+        vkGetDeviceQueue(LogicalDevice, PhysicalDeviceIndices[VK_QUEUE_GRAPHICS_BIT], 0, &LogicalDeviceGraphickQueue);
+        
+
+    }
+
     bool isDeviceSuitable(VkPhysicalDevice device)
     {
         vkGetPhysicalDeviceProperties(device, &PhysicalDeviceProperties);
         vkGetPhysicalDeviceFeatures(device, &PhysicalDeviceFeatures);
-        QueueFamilyIndices result{findQueueFamilies(device)};
-        if (!result.graphicsFamily.has_value()){SPDLOG_CRITICAL("Graphic family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;};
-        if (!result.computeFamily.has_value()) {SPDLOG_CRITICAL("Compute family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;};
-        if (!result.transferFamily.has_value()) {SPDLOG_CRITICAL("Transfer family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;}
-        if (!result.sparseBindingFamily.has_value()) {SPDLOG_CRITICAL("Sparse binding family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;}
-        // if (!result.protectMemoryFamily.has_value()) {SPDLOG_CRITICAL("Protect memory family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;}
-        if (!result.videoDecodeFamily.has_value()) {SPDLOG_CRITICAL("Video decode family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;}
-        // if (!result.videoEncodeFamily.has_value()) {SPDLOG_CRITICAL("Video encode family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;}
-        // if (!result.opticalFlowFamily.has_value()) {SPDLOG_CRITICAL("Optical Flow family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;}
+        auto indices{findQueueFamilies(device)};
+        if (indices.find(VK_QUEUE_GRAPHICS_BIT) == indices.end()){SPDLOG_CRITICAL("Graphic family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;};
+        if (indices.find(VK_QUEUE_COMPUTE_BIT) == indices.end()) {SPDLOG_CRITICAL("Compute family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;};
+        if (indices.find(VK_QUEUE_TRANSFER_BIT) == indices.end()) {SPDLOG_CRITICAL("Transfer family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;}
+        if (indices.find(VK_QUEUE_SPARSE_BINDING_BIT) == indices.end()) {SPDLOG_CRITICAL("Sparse binding family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;}
+        // if (indices.find(VK_QUEUE_PROTECTED_BIT) == indices.end()) {SPDLOG_CRITICAL("Protect memory family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;}
+        if (indices.find(VK_QUEUE_VIDEO_DECODE_BIT_KHR) == indices.end()) {SPDLOG_CRITICAL("Video decode family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;}
+        // if (indices.find(VK_QUEUE_VIDEO_ENCODE_BIT_KHR) == indices.end()) {SPDLOG_CRITICAL("Video encode family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;}
+        // if (indices.find(VK_QUEUE_OPTICAL_FLOW_BIT_NV) == indices.end()) {SPDLOG_CRITICAL("Optical Flow family queue isn't support by {}.", PhysicalDeviceProperties.deviceName); return false;}
         PhysicalDevice = device;
+        PhysicalDeviceIndices = indices;
         return true;
     }
-    struct QueueFamilyIndices {
-        std::optional<uint32_t> graphicsFamily;
-        std::optional<uint32_t> computeFamily;
-        std::optional<uint32_t> transferFamily;
-        std::optional<uint32_t> sparseBindingFamily;
-        // std::optional<uint32_t> protectMemoryFamily;
-        std::optional<uint32_t> videoDecodeFamily;
-        // std::optional<uint32_t> videoEncodeFamily;
-        // std::optional<uint32_t> opticalFlowFamily;
-    };
-
-    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
-        QueueFamilyIndices indices;
+    // struct QueueFamilyIndices {
+    //     std::optional<uint32_t> graphicsFamily;
+    //     std::optional<uint32_t> computeFamily;
+    //     std::optional<uint32_t> transferFamily;
+    //     std::optional<uint32_t> sparseBindingFamily;
+    //     // std::optional<uint32_t> protectMemoryFamily;
+    //     std::optional<uint32_t> videoDecodeFamily;
+    //     // std::optional<uint32_t> videoEncodeFamily;
+    //     // std::optional<uint32_t> opticalFlowFamily;
+    // };
+    std::unordered_map<uint16_t, uint32_t> findQueueFamilies(VkPhysicalDevice device) {
+        std::unordered_map<uint16_t, uint32_t>indices;
         uint32_t queueCount{0};
         vkGetPhysicalDeviceQueueFamilyProperties(device, &queueCount, nullptr);
         std::vector<VkQueueFamilyProperties>QueueFamilies(queueCount);
         vkGetPhysicalDeviceQueueFamilyProperties(device, &queueCount, QueueFamilies.data());
+        uint32_t index{0};
         for (const auto &queueF : QueueFamilies)
         {
-            if (queueF.queueFlags & VK_QUEUE_GRAPHICS_BIT) indices.graphicsFamily = 1;
-            if (queueF.queueFlags & VK_QUEUE_COMPUTE_BIT) indices.computeFamily = 1;
-            if (queueF.queueFlags & VK_QUEUE_TRANSFER_BIT) indices.transferFamily = 1;
-            if (queueF.queueFlags & VK_QUEUE_SPARSE_BINDING_BIT) indices.sparseBindingFamily = 1;
-            // if (queueF.queueFlags & VK_QUEUE_PROTECTED_BIT) indices.protectMemoryFamily = 1;
-            if (queueF.queueFlags & VK_QUEUE_VIDEO_DECODE_BIT_KHR) indices.videoDecodeFamily = 1;
-            // if (queueF.queueFlags & VK_QUEUE_VIDEO_ENCODE_BIT_KHR) indices.videoEncodeFamily = 1;
-            // if (queueF.queueFlags & VK_QUEUE_OPTICAL_FLOW_BIT_NV) indices.opticalFlowFamily = 1;
+            if (queueF.queueFlags & VK_QUEUE_GRAPHICS_BIT) indices[VK_QUEUE_GRAPHICS_BIT] = index++;
+            if (queueF.queueFlags & VK_QUEUE_COMPUTE_BIT) indices[VK_QUEUE_COMPUTE_BIT] = index++;
+            if (queueF.queueFlags & VK_QUEUE_TRANSFER_BIT) indices[VK_QUEUE_TRANSFER_BIT] = index++;
+            if (queueF.queueFlags & VK_QUEUE_SPARSE_BINDING_BIT) indices[VK_QUEUE_SPARSE_BINDING_BIT] = index++;
+            if (queueF.queueFlags & VK_QUEUE_PROTECTED_BIT) indices[VK_QUEUE_PROTECTED_BIT] = index++;
+            if (queueF.queueFlags & VK_QUEUE_VIDEO_DECODE_BIT_KHR) indices[VK_QUEUE_VIDEO_DECODE_BIT_KHR] = index++;
+            // if (queueF.queueFlags & VK_QUEUE_VIDEO_ENCODE_BIT_KHR) indices[VK_QUEUE_VIDEO_ENCODE_BIT_KHR] = index++;
+            if (queueF.queueFlags & VK_QUEUE_OPTICAL_FLOW_BIT_NV) indices[VK_QUEUE_OPTICAL_FLOW_BIT_NV] = index++;
         }
 
 
         return indices;
     }
-
-
     
     void CreateVKinstance()
     {
@@ -232,7 +265,7 @@ private:
 
         VkApplicationInfo AppInfo{};
         AppInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-        AppInfo.pApplicationName = "Vulkan start";
+        AppInfo.pApplicationName = TITLE.data();
         AppInfo.applicationVersion = VK_MAKE_VERSION(0, 0, 1);
         AppInfo.apiVersion = VK_API_VERSION_1_0;
         // AppInfo.pNext = ;
