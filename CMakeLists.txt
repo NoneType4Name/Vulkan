@@ -7,19 +7,43 @@ project("SomeApp"
         )
 
 set(EXECUTABLE_NAME "window")
-set(DEPENDENCIES_FOLDER "include")
 message("${CMAKE_PROJECT_NAME} ${CMAKE_PROJECT_VERSION}\n${CMAKE_PROJECT_DESCRIPTION}")
 
 find_package(Vulkan REQUIRED)
-find_package(glfw3 REQUIRED)
-find_package(spdlog REQUIRED)
-find_package(glm)
 # find_package(imgui)
 
 file(GLOB PROJECT_SRC "src/*.cpp" "src/*.h")
+if (${CMAKE_HOST_SYSTEM_PROCESSOR} STREQUAL "AMD64")
+        set(GLSL_VALIDATOR "$ENV{VULKAN_SDK}/Bin/glslc.exe")
+else()
+        set(GLSL_VALIDATOR "$ENV{VULKAN_SDK}/Bin32/glslc.exe")
+endif()
 
+file(GLOB_RECURSE GLSL_SOURCE_FILES
+        "shaders/*"
+)
+foreach(GLSL ${GLSL_SOURCE_FILES})
+  get_filename_component(FILE_NAME ${GLSL} NAME)
+  set(SPIRV "${PROJECT_BINARY_DIR}/shaders/${FILE_NAME}.spv")
+  add_custom_command(
+    OUTPUT ${SPIRV}
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${PROJECT_BINARY_DIR}/shaders/"
+    COMMAND ${GLSL_VALIDATOR} ${GLSL} -o ${SPIRV}
+    DEPENDS ${GLSL})
+  list(APPEND SPIRV_BINARY_FILES ${SPIRV})
+endforeach(GLSL)
+
+add_custom_target(
+    Shaders 
+    DEPENDS ${SPIRV_BINARY_FILES}
+)
+
+find_package(glfw3 REQUIRED)
+find_package(spdlog REQUIRED)
+find_package(glm)
 
 add_executable(${EXECUTABLE_NAME} ${PROJECT_SRC})
+add_dependencies(${EXECUTABLE_NAME} Shaders)
 
 target_link_libraries(${EXECUTABLE_NAME} Vulkan::Vulkan)
 target_include_directories(${EXECUTABLE_NAME} PUBLIC ${glfw3_INCLUDE_DIRS})

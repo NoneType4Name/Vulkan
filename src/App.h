@@ -1,16 +1,22 @@
-#if defined( WIN32 )
-#define VK_USE_PLATFORM_WIN32_KHR
-#elif defined ( __linux__ )
-#define VK_USE_PLATFORM_X11_KHR
-#endif
+#pragma once
 #define GLFW_INCLUDE_VULKAN
-#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
-#include <GLFW/glfw3.h>
-#if defined( WIN32 )
+#if defined(WIN32)
+#define VK_USE_PLATFORM_WIN32_KHR
 #define GLFW_EXPOSE_NATIVE_WIN32
-#elif defined ( __linux__ )
+#elif defined(__LINUX__)
+#define VK_USE_PLATFORM_X11_KHR
 #define GLFW_EXPOSE_NATIVE_X11
 #endif
+
+#ifdef _DEBUG
+    #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+    const bool APP_DEBUG = true;
+#else
+    #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_CRITICAL
+    const bool APP_DEBUG = false;
+#endif
+
+#include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 #include <vulkan/vk_enum_string_helper.h>
 #include <spdlog/spdlog.h>
@@ -27,8 +33,53 @@
 #include <optional>
 #include <limits>
 
-uint16_t DEFAULT_WIDTH{800};
-uint16_t DEFAULT_HEIGHT{600};
+
+namespace
+{
+    uint16_t DEFAULT_WIDTH{800};
+    uint16_t DEFAULT_HEIGHT{600};
+    static void GLFWerrorCallback(int code, const char *data)
+    {
+        SPDLOG_CRITICAL("GLFW ERROR {}: {}", code, data);
+    }
+    struct _initialize
+    {
+        _initialize()
+        {
+            try
+            {
+                spdlog::set_level(APP_DEBUG ? spdlog::level::trace : spdlog::level::critical);
+                spdlog::set_pattern("[func %!] [line %#] [%H:%M:%S.%e] [%^%l%$] %v");
+                SPDLOG_DEBUG("--- Start logging. ---");
+            }
+            catch(const std::exception &logInitE)
+            {
+                std::cerr << "Logger initialize error:\t" <<logInitE.what() << '\n.';
+            }
+            
+            // exit(EXIT_FAILURE);
+
+            if (glfwInit())
+            {
+                SPDLOG_DEBUG("GLFW{} inititialized.", glfwGetVersionString());
+                glfwSetErrorCallback( GLFWerrorCallback );
+            }
+            else
+            {
+                SPDLOG_CRITICAL("GLFW not initialized.");
+                SPDLOG_INFO("Exit with code {}.", EXIT_FAILURE);
+                exit(EXIT_FAILURE);
+            }
+        }
+        ~_initialize()
+        {
+            glfwTerminate();
+            SPDLOG_DEBUG("App closed.");
+            SPDLOG_DEBUG("--- Log finish. ---");
+            spdlog::shutdown();
+        }
+    }_;
+}
 
 struct QueueFamilyIndices
 {
@@ -55,14 +106,12 @@ public:
     int32_t DISPLAY_HEIGHT;
     std::string TITLE;
 
-    #ifdef NDEBUG
-        const bool EnableValidationLayers = false;
-    #else
-        const bool EnableValidationLayers = true;
-    #endif
     App(uint16_t width, uint16_t height, const char * title) : WIDTH{width}, HEIGHT{height}, TITLE{title}
     {
-        run();
+        initWindow();
+        initVulkan();
+        CheckValidationLayers();
+        mainLoop();
     }
     ~App()
     {
@@ -70,17 +119,9 @@ public:
         vkDestroySwapchainKHR(LogicalDevice, SwapChain, nullptr);
         vkDestroyDevice(LogicalDevice, NULL);
         vkDestroySurfaceKHR(instance, Surface, nullptr);
-        if (EnableValidationLayers) DestroyDebugUtilsMessengerEXT(instance, DebugMessenger, nullptr);
+        if (APP_DEBUG) DestroyDebugUtilsMessengerEXT(instance, DebugMessenger, nullptr);
         vkDestroyInstance(instance, NULL);
         glfwDestroyWindow(window);
-    }
-
-    void run()
-    {
-        initWindow();
-        initVulkan();
-        CheckValidationLayers();
-        mainLoop();
     }
 
     void CentralizeWindow()
@@ -161,8 +202,8 @@ private:
         VkResult Result{vkCreateXcbSurfaceKHR(instance, &createInfo, nullptr, &Surface)};
         if (Result != VK_SUCCESS)
         {
-            SPDLOG_CRITICAL("WIN32 surface wasn't be created, error: {}", string_VkResult(Result));
-            throw std::runtime_error(std::format("WIN32 surface wasn't be created, error: {}", string_VkResult(Result)));
+            SPDLOG_CRITICAL("Linux surface wasn't be created, error: {}", string_VkResult(Result));
+            throw std::runtime_error(std::format("Linux surface wasn't be created, error: {}", string_VkResult(Result)));
         }
         #endif
         GetPhysicalDevice();
@@ -282,7 +323,7 @@ private:
         createInfo.pEnabledFeatures = &deviceFeatures;
         createInfo.enabledExtensionCount = static_cast<uint32_t>(RequeredDeviceExts.size());
         createInfo.ppEnabledExtensionNames = RequeredDeviceExts.data();
-        if (EnableValidationLayers)
+        if (APP_DEBUG)
         {
             createInfo.enabledLayerCount = static_cast<uint32_t>(ValidationLayers.size());
             createInfo.ppEnabledLayerNames = ValidationLayers.data();
@@ -399,7 +440,7 @@ private:
 
     void CreateVKinstance()
     {
-        if (EnableValidationLayers && !CheckValidationLayers())
+        if (APP_DEBUG && !CheckValidationLayers())
             throw std::runtime_error("Unavilable validation layer.");
 
         uint32_t glfwExtensionsCount{0};
@@ -421,7 +462,7 @@ private:
         CreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
         CreateInfo.pApplicationInfo = &AppInfo;
 
-        if (EnableValidationLayers)
+        if (APP_DEBUG)
         {
             CreateInfo.enabledLayerCount = uint32_t(ValidationLayers.size());
             CreateInfo.ppEnabledLayerNames = ValidationLayers.data();
@@ -472,7 +513,7 @@ private:
 
     void SetupDebugMessenger()
     {
-        if (!EnableValidationLayers) return;
+        if (!APP_DEBUG) return;
         VkResult CreateDebugUtilsMessengerEXT_result{CreateDebugUtilsMessengerEXT(instance, &DbgMessengerCreateInfo, nullptr, &DebugMessenger)};
         if (CreateDebugUtilsMessengerEXT_result != VK_SUCCESS) throw std::runtime_error(std::format("Failed to setup Debug Messenger, error: {}.", string_VkResult(CreateDebugUtilsMessengerEXT_result)));
     }

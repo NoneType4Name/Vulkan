@@ -1,43 +1,5 @@
 #include "App.h"
 
-namespace
-{
-    static void GLFWerrorCallback(int code, const char *data)
-    {
-        SPDLOG_CRITICAL("GLFW ERROR {}: {}", code, data);
-    }
-    struct GLFWinit
-    {
-        GLFWinit()
-        {
-            spdlog::set_level(spdlog::level::trace);
-            spdlog::set_pattern("[func %!] [line %#] [%H:%M:%S.%e] [%^%l%$] %v");
-            SPDLOG_DEBUG("--- Start logging. ---");
-            // exit(EXIT_FAILURE);
-
-            int32_t code{glfwInit()};
-            if ( code==GLFW_TRUE )
-            {
-                SPDLOG_DEBUG("GLFW{} inititialized", glfwGetVersionString());
-                glfwSetErrorCallback( GLFWerrorCallback );
-            }
-            else
-            {
-                SPDLOG_CRITICAL("GLFW not initialized, errno{}", code);
-                SPDLOG_INFO("Exit with code {}.", EXIT_FAILURE);
-                exit(EXIT_FAILURE);
-            }
-        }
-        ~GLFWinit()
-        {
-            glfwTerminate();
-            SPDLOG_DEBUG("App closed.");
-            SPDLOG_DEBUG("--- Log finish. ---");
-            spdlog::shutdown();
-        }
-    }_;
-}
-
 int main(int argc, char *argv[])
 {    
     try
