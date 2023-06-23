@@ -2,6 +2,7 @@
 
 int main(int argc, char *argv[])
 {    
+
     try
     {
         App app{1920, 1080, "HV"};

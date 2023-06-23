@@ -1,14 +1,9 @@
 #version 450
 
-layout(location=0) in flat uint Index;
-layout(location=0) out vec4 Color;
+layout(location = 0) in vec3 fragColor;
 
-vec3 VertexColor[] = vec3[](
-    vec3(1.0,0.0,0.0),
-    vec3(0.0,1.0,0.0),
-    vec3(0.0,0.0,1.0)
-);
-void main()
-{
-    Color = vec4(VertexColor[Index], 1.0);
+layout(location = 0) out vec4 outColor;
+
+void main() {
+    outColor = vec4(fragColor, 1.0);
 }
