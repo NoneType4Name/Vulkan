@@ -105,6 +105,12 @@ struct Vertex
     glm::vec4 color;
 };
 
+static const std::vector<Vertex>ObjectVertices{
+    {{.0f, -0.5f, .0f}, {1.f, .0f, .0f, 1.f}},
+    {{.5f, .5f, .0f}, {.0f, 1.f, .0f, 1.f}},
+    {{-.5f, .5f, .0f}, {.0f, 0.f, 1.f, 1.f}}
+};
+
 static void FramebufferResizeCallback(GLFWwindow *AppPointer, int width, int height);
 static void WindwoResizeCallback(GLFWwindow *AppPointer, int width, int height);
 // static void WindowMaximizeCallback(GLFWwindow *AppPointer, int maximized);
@@ -199,14 +205,7 @@ private:
     uint8_t _CurrentFrame{0};
     uint8_t _MaxFramesInFlight{1};
     VkDebugUtilsMessengerEXT DebugMessenger;
-    VkDebugUtilsMessengerCreateInfoEXT DbgMessengerCreateInfo{
-        VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-        NULL,
-        NULL,
-        VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
-        VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
-        DebugCallback,
-        this};
+    VkDebugUtilsMessengerCreateInfoEXT DbgMessengerCreateInfo{};
 
     void initWindow()
     {
@@ -926,11 +925,25 @@ private:
         AppInfo.pApplicationName = TITLE.data();
         AppInfo.applicationVersion = VK_MAKE_VERSION(0, 0, 1);
         AppInfo.apiVersion = VK_API_VERSION_1_0;
-        // AppInfo.pNext = ;
+
+        VkValidationFeatureEnableEXT enables[] = {VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT};
+        VkValidationFeaturesEXT features = {};
+        features.sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
+        features.enabledValidationFeatureCount = sizeof(enables)/sizeof(VkValidationFeatureEnableEXT);
+        features.pEnabledValidationFeatures = enables;
 
         VkInstanceCreateInfo CreateInfo{};
         CreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
         CreateInfo.pApplicationInfo = &AppInfo;
+        // CreateInfo.ppEnabledExtensionNames = exts;
+        CreateInfo.pNext = &features;
+
+        DbgMessengerCreateInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+        DbgMessengerCreateInfo.pNext = &features;
+        DbgMessengerCreateInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+        DbgMessengerCreateInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+        DbgMessengerCreateInfo.pfnUserCallback = DebugCallback;
+        DbgMessengerCreateInfo.pUserData = this;
 
         if (APP_DEBUG)
         {
