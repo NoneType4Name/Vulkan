@@ -1,19 +1,18 @@
 #include "App.h"
 
-int main(int argc, char *argv[])
-{    
-
+int main( int argc, char *argv[] )
+{
     try
     {
-        App app{0, 0, "HV"};
+        App app{ 0, 0, "HV" };
     }
-    catch (const std::exception &e)
+    catch( const std::exception &e )
     {
         std::cerr << e.what() << std::endl;
-        SPDLOG_CRITICAL("{}\n Exit with error code {}.", e.what(), EXIT_FAILURE);
+        SPDLOG_CRITICAL( "{}\n Exit with error code {}.", e.what(), EXIT_FAILURE );
         return EXIT_FAILURE;
     }
-    SPDLOG_INFO("Exit with code {}.", EXIT_SUCCESS);
+    SPDLOG_INFO( "Exit with code {}.", EXIT_SUCCESS );
     return EXIT_SUCCESS;
 }
 
