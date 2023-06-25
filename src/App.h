@@ -28,6 +28,7 @@
 #include <optional>
 #include <iostream>
 #include <stdexcept>
+#include <algorithm>
 #include <GLFW/glfw3.h>
 #include <spdlog/spdlog.h>
 #include <GLFW/glfw3native.h>
@@ -98,6 +99,10 @@ struct SwapChainProperties
     std::vector<VkPresentModeKHR> PresentModes;
 };
 
+static void FramebufferResizeCallback(GLFWwindow *AppPointer, int width, int height);
+static void WindwoResizeCallback(GLFWwindow *AppPointer, int width, int height);
+// static void WindowMaximizeCallback(GLFWwindow *AppPointer, int maximized);
+
 class App
 {
 public:
@@ -116,17 +121,14 @@ public:
     }
     ~App()
     {
-        for (const auto &fBuffer : SwapchainFrameBuffers) vkDestroyFramebuffer(LogicalDevice, fBuffer, nullptr);
-        for (const auto &imView : SwapchainImgsView) vkDestroyImageView(LogicalDevice, imView, nullptr);
-        for (const auto &shaderS : ShaderStage) vkDestroyShaderModule(LogicalDevice, shaderS.module, nullptr);
-        vkDestroyPipelineLayout(LogicalDevice, PipelineLayout, nullptr);
-        vkDestroyRenderPass(LogicalDevice, RenderPass, nullptr);
-        vkDestroyPipeline(LogicalDevice, GraphicsPipeline, nullptr);
-        vkDestroySwapchainKHR(LogicalDevice, SwapChain, nullptr);
+        DestroySwapchain();
         vkDestroyCommandPool(LogicalDevice, CommandPool, nullptr);
-        vkDestroySemaphore(LogicalDevice, ImageAvailableSemaphore, nullptr);
-        vkDestroySemaphore(LogicalDevice, RenderFinishedSemaphore, nullptr);
-        vkDestroyFence(LogicalDevice, WaitFrame, nullptr);
+        for (uint8_t i{0}; i < _MaxFramesInFlight; i++)
+        {
+            vkDestroySemaphore(LogicalDevice, ImageAvailableSemaphores[i], nullptr);
+            vkDestroySemaphore(LogicalDevice, RenderFinishedSemaphores[i], nullptr);
+            vkDestroyFence(LogicalDevice, WaitFrames[i], nullptr);
+        }
         vkDestroyDevice(LogicalDevice, nullptr);
         vkDestroySurfaceKHR(instance, Surface, nullptr);
         if (APP_DEBUG) DestroyDebugUtilsMessengerEXT(instance, DebugMessenger, nullptr);
@@ -137,6 +139,17 @@ public:
     void CentralizeWindow()
     {
         glfwSetWindowPos(window, (DISPLAY_WIDTH/2)-(WIDTH/2), (DISPLAY_HEIGHT/2)-(HEIGHT/2));
+    }
+
+    void SetWindowSize(uint32_t width, uint32_t height)
+    {
+        if (WIDTH != width || HEIGHT != height)
+        {
+            WIDTH = width;
+            HEIGHT = height;
+            glfwSetWindowSize(window, WIDTH, HEIGHT);
+        }
+        ReCreateSwapChain();
     }
 
     void GetScreenResolution(int32_t &width, int32_t &height)
@@ -173,10 +186,12 @@ private:
     std::vector<VkImageView>SwapchainImgsView;
     std::vector<VkFramebuffer>SwapchainFrameBuffers;
     VkCommandPool CommandPool;
-    VkCommandBuffer CommandBuffer;
-    VkSemaphore ImageAvailableSemaphore;
-    VkSemaphore RenderFinishedSemaphore;
-    VkFence WaitFrame;
+    std::vector<VkCommandBuffer> CommandBuffers;
+    std::vector<VkSemaphore> ImageAvailableSemaphores;
+    std::vector<VkSemaphore> RenderFinishedSemaphores;
+    std::vector<VkFence> WaitFrames;
+    uint8_t _CurrentFrame{0};
+    uint8_t _MaxFramesInFlight{1};
     VkDebugUtilsMessengerEXT DebugMessenger;
     VkDebugUtilsMessengerCreateInfoEXT DbgMessengerCreateInfo{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
@@ -190,13 +205,21 @@ private:
     void initWindow()
     {
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-        glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
-        glfwWindowHint(GLFW_FOCUSED, GLFW_FALSE);
         GetScreenResolution(DISPLAY_WIDTH, DISPLAY_HEIGHT);
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+        if (!(WIDTH | HEIGHT))
+        {
+            glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+            glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+        }
+
         if (!WIDTH) WIDTH = DISPLAY_WIDTH;
         if (!HEIGHT) HEIGHT = DISPLAY_HEIGHT;
         window = glfwCreateWindow(WIDTH, HEIGHT, TITLE.data(), nullptr, nullptr);
+        glfwSetWindowUserPointer(window, this);
+        glfwSetFramebufferSizeCallback(window, FramebufferResizeCallback);
+        glfwSetWindowSizeCallback(window, WindwoResizeCallback);
+        // glfwSetWindowMaximizeCallback(window, WindowMaximizeCallback);
         CentralizeWindow();
     }
 
@@ -235,64 +258,80 @@ private:
         CreateGraphicsPipelines();
         CreateFrameBuffers();
         CreateCommandPool();
+        CreateCommandBuffers();
         VkSemaphoreCreateInfo semaphoreInfo{};
         semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         VkFenceCreateInfo FenceInfo{};
         FenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         FenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-        Result = vkCreateSemaphore(LogicalDevice, &semaphoreInfo, nullptr, &ImageAvailableSemaphore);
-        if (Result != VK_SUCCESS)
+        for (uint8_t i{0}; i < _MaxFramesInFlight; i++)
+        {
+            ImageAvailableSemaphores.resize(_MaxFramesInFlight);
+            RenderFinishedSemaphores.resize(_MaxFramesInFlight);
+            WaitFrames.resize(_MaxFramesInFlight);
+            Result = vkCreateSemaphore(LogicalDevice, &semaphoreInfo, nullptr, &ImageAvailableSemaphores[i]);
+            if (Result != VK_SUCCESS)
+            {
+                SPDLOG_CRITICAL("Failed to create Semaphore, error: {}.", string_VkResult(Result));
+                throw std::runtime_error(std::format("Failed to create Semaphore, error: {}.", string_VkResult(Result)));
+            }
+            Result = vkCreateSemaphore(LogicalDevice, &semaphoreInfo, nullptr, &RenderFinishedSemaphores[i]);
+            if (Result != VK_SUCCESS)
+            {
+                SPDLOG_CRITICAL("Failed to create Semaphore, error: {}.", string_VkResult(Result));
+                throw std::runtime_error(std::format("Failed to create Semaphore, error: {}.", string_VkResult(Result)));
+            }
+            Result = vkCreateFence(LogicalDevice, &FenceInfo, nullptr, &WaitFrames[i]);
+            if (Result != VK_SUCCESS)
         {
             SPDLOG_CRITICAL("Failed to create Semaphore, error: {}.", string_VkResult(Result));
             throw std::runtime_error(std::format("Failed to create Semaphore, error: {}.", string_VkResult(Result)));
         }
-        Result = vkCreateSemaphore(LogicalDevice, &semaphoreInfo, nullptr, &RenderFinishedSemaphore);
-        if (Result != VK_SUCCESS)
-        {
-            SPDLOG_CRITICAL("Failed to create Semaphore, error: {}.", string_VkResult(Result));
-            throw std::runtime_error(std::format("Failed to create Semaphore, error: {}.", string_VkResult(Result)));
-        }
-        Result = vkCreateFence(LogicalDevice, &FenceInfo, nullptr, &WaitFrame);
-        if (Result != VK_SUCCESS)
-        {
-            SPDLOG_CRITICAL("Failed to create Semaphore, error: {}.", string_VkResult(Result));
-            throw std::runtime_error(std::format("Failed to create Semaphore, error: {}.", string_VkResult(Result)));
         }
     }
 
     void mainLoop()
     {
-        while (!glfwWindowShouldClose(window))
+        while (!(glfwWindowShouldClose(window) || glfwGetKey(window, GLFW_KEY_ESCAPE)==GLFW_PRESS))
         {
             glfwPollEvents();
             drawFrame();
         }
-        vkDeviceWaitIdle(LogicalDevice);
     }
    
     void drawFrame()
     {
-        vkWaitForFences(LogicalDevice, 1, &WaitFrame, VK_TRUE, UINT64_MAX);
-        vkResetFences(LogicalDevice, 1, &WaitFrame);
         uint32_t imgI;
-        vkAcquireNextImageKHR(LogicalDevice, SwapChain, UINT64_MAX, ImageAvailableSemaphore, nullptr, &imgI);
-        vkResetCommandBuffer(CommandBuffer, /*VkCommandBufferResetFlagBits*/ 0);
-        RecordCommandBuffer(CommandBuffer, imgI);
+        vkWaitForFences(LogicalDevice, 1, &WaitFrames[_CurrentFrame], VK_TRUE, UINT64_MAX);
+        switch (vkAcquireNextImageKHR(LogicalDevice, SwapChain, UINT64_MAX, ImageAvailableSemaphores[_CurrentFrame], nullptr, &imgI))
+        {
+        case VK_SUCCESS:
+            break;
+        case VK_ERROR_OUT_OF_DATE_KHR:
+            ReCreateSwapChain();
+            return;
+        default:
+            SPDLOG_CRITICAL("Failed to Acqueire image from swapchain.");
+            throw std::runtime_error("Failed to Acqueire image from swapchain.");
+        }
+        vkResetFences(LogicalDevice, 1, &WaitFrames[_CurrentFrame]);
+        vkResetCommandBuffer(CommandBuffers[_CurrentFrame], /*VkCommandBufferResetFlagBits*/ 0);
+        RecordCommandBuffer(CommandBuffers[_CurrentFrame], imgI);
         VkSubmitInfo submitInfo{};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-        VkSemaphore ImageSemaphore[] = {ImageAvailableSemaphore};
-        VkSemaphore RenderSemaphore[] = {RenderFinishedSemaphore};
+        VkSemaphore ImageSemaphore[] = {ImageAvailableSemaphores[_CurrentFrame]};
+        VkSemaphore RenderSemaphore[] = {RenderFinishedSemaphores[_CurrentFrame]};
         VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
         submitInfo.waitSemaphoreCount = 1;
         submitInfo.pWaitSemaphores = ImageSemaphore;
         submitInfo.pWaitDstStageMask = waitStages;
         submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &CommandBuffer;
+        submitInfo.pCommandBuffers = &CommandBuffers[_CurrentFrame];
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = RenderSemaphore;
-        VkResult Result{vkQueueSubmit(LogicalDeviceGraphickQueue, 1, &submitInfo, WaitFrame)};
+        VkResult Result{vkQueueSubmit(LogicalDeviceGraphickQueue, 1, &submitInfo, WaitFrames[_CurrentFrame])};
         if (Result != VK_SUCCESS)
         {
             SPDLOG_CRITICAL("Failed to Submit draw frame, error: {}.", string_VkResult(Result));
@@ -307,9 +346,27 @@ private:
         PresentInfo.pSwapchains = swapChains;
         PresentInfo.pImageIndices = &imgI;
         vkQueuePresentKHR(LogicalDeviceGraphickQueue, &PresentInfo);
+        _CurrentFrame = ++_CurrentFrame%_MaxFramesInFlight;
     }
 
     // Support Functios
+    void DestroySwapchain()
+    {
+        vkDeviceWaitIdle(LogicalDevice);
+        for (size_t i{0}; i < SwapchainImgsView.size(); i++)
+        {
+            vkDestroyFramebuffer(LogicalDevice, SwapchainFrameBuffers[i], nullptr);
+            vkDestroyImageView(LogicalDevice, SwapchainImgsView[i], nullptr);
+        }
+        for (const auto &shaderS : ShaderStage) vkDestroyShaderModule(LogicalDevice, shaderS.module, nullptr);
+        vkFreeCommandBuffers(LogicalDevice, CommandPool, static_cast<uint32_t>(CommandBuffers.size()), CommandBuffers.data());
+        vkDestroyPipelineLayout(LogicalDevice, PipelineLayout, nullptr);
+        vkDestroyRenderPass(LogicalDevice, RenderPass, nullptr);
+        vkDestroyPipeline(LogicalDevice, GraphicsPipeline, nullptr);
+        vkDestroySwapchainKHR(LogicalDevice, SwapChain, nullptr);
+    }
+
+
     void GetPhysicalDevice()
     {
         uint32_t CountPhysicalDevices{0};
@@ -473,6 +530,7 @@ private:
 
     void CreateSwapchain()
     {
+        PhysiacalDeviceSwapchainProperties = GetSwapchainProperties(PhysicalDevice);
         VkSurfaceFormatKHR SurfaceFormat{PhysiacalDeviceSwapchainProperties.Format[0]};
         for (const auto &format : PhysiacalDeviceSwapchainProperties.Format)
         {
@@ -485,26 +543,18 @@ private:
         {
             if (mode == VK_PRESENT_MODE_MAILBOX_KHR) SwapchainPresentMode = SurfacePresentMode = mode;
         }
-        if (PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.width < WIDTH)
-        {
-            WIDTH = PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.width;
-        }
-        else
-        {
-            PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.width = WIDTH;
-        }
-        if (PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.height < HEIGHT)
-        {
-            HEIGHT = PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.height;
-        }
-        else
-        {
-            PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.height = HEIGHT;
-        }
-        uint32_t imageCount = PhysiacalDeviceSwapchainProperties.Capabilities.minImageCount + 1;
-        if (PhysiacalDeviceSwapchainProperties.Capabilities.maxImageCount > 0 && imageCount > PhysiacalDeviceSwapchainProperties.Capabilities.maxImageCount) {
+        int width, height;
+        glfwGetFramebufferSize(window, &width, &height);
+        PhysiacalDeviceSwapchainProperties.Capabilities.maxImageExtent.width = DISPLAY_WIDTH;
+        PhysiacalDeviceSwapchainProperties.Capabilities.maxImageExtent.height = DISPLAY_HEIGHT;
+        PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.width = std::clamp(static_cast<uint32_t>(width), PhysiacalDeviceSwapchainProperties.Capabilities.minImageExtent.width, PhysiacalDeviceSwapchainProperties.Capabilities.maxImageExtent.width);
+        PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.height = std::clamp(static_cast<uint32_t>(height), PhysiacalDeviceSwapchainProperties.Capabilities.minImageExtent.height, PhysiacalDeviceSwapchainProperties.Capabilities.maxImageExtent.height);
+        // PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.height = height;
+        uint32_t imageCount = PhysiacalDeviceSwapchainProperties.Capabilities.minImageCount;
+        if (PhysiacalDeviceSwapchainProperties.Capabilities.maxImageCount > 0 && imageCount < PhysiacalDeviceSwapchainProperties.Capabilities.maxImageCount) {
             imageCount = PhysiacalDeviceSwapchainProperties.Capabilities.maxImageCount;
         }
+        _MaxFramesInFlight = imageCount;
         VkSwapchainCreateInfoKHR createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
         createInfo.surface = Surface;
@@ -540,6 +590,18 @@ private:
         SwapchainImgs.resize(imageCount);
         vkGetSwapchainImagesKHR(LogicalDevice, SwapChain, &imageCount, SwapchainImgs.data());
         
+    }
+
+    void ReCreateSwapChain()
+    {
+        DestroySwapchain();
+
+        CreateSwapchain();
+        CreateImageViews();
+        CreateRenderPass();
+        CreateGraphicsPipelines();
+        CreateFrameBuffers();
+        CreateCommandBuffers();
     }
 
     void CreateRenderPass() {
@@ -686,7 +748,6 @@ private:
         GraphicPipeLineCreateInfo.layout = PipelineLayout;
         GraphicPipeLineCreateInfo.renderPass = RenderPass;
         GraphicPipeLineCreateInfo.subpass = 0;
-
         Result = vkCreateGraphicsPipelines(LogicalDevice, nullptr, 1, &GraphicPipeLineCreateInfo, nullptr, &GraphicsPipeline);
         if (Result != VK_SUCCESS)
         {
@@ -758,19 +819,23 @@ private:
             SPDLOG_CRITICAL("Failed to create grapchi Command pool, error: {}.", string_VkResult(Result));
             throw std::runtime_error(std::format("Failed to create grapchi Command pool, error: {}.", string_VkResult(Result)));
         }
-        // CommandBuffers.resize(SwapchainFrameBuffers.size());
+    }
+    
+    void CreateCommandBuffers()
+    {
         VkCommandBufferAllocateInfo CommandBufferAllocateInfo{};
         CommandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         CommandBufferAllocateInfo.commandPool = CommandPool;
         CommandBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        // CommandBufferAllocateInfo.commandBufferCount = static_cast<uint32_t>(CommandBuffers.size());
-        CommandBufferAllocateInfo.commandBufferCount = 1;
-        Result = vkAllocateCommandBuffers(LogicalDevice, &CommandBufferAllocateInfo, &CommandBuffer);
+        CommandBufferAllocateInfo.commandBufferCount = _MaxFramesInFlight;
+        CommandBuffers.resize(_MaxFramesInFlight);
+        VkResult Result{vkAllocateCommandBuffers(LogicalDevice, &CommandBufferAllocateInfo, CommandBuffers.data())};
         if (Result != VK_SUCCESS)
         {
             SPDLOG_CRITICAL("Failed to allocate Command buffers, error: {}.", string_VkResult(Result));
             throw std::runtime_error(std::format("Failed to allocate Command buffers, error: {}.", string_VkResult(Result)));
         }
+    
     }
     
     void RecordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imI)
@@ -780,7 +845,7 @@ private:
             VkCommandBufferBeginInfo CommandBufferBeginInfo{};
             CommandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
             // Result = vkBeginCommandBuffer(CommandBuffers[i], &CommandBufferBeginInfo);
-            VkResult Result{vkBeginCommandBuffer(CommandBuffer, &CommandBufferBeginInfo)};
+            VkResult Result{vkBeginCommandBuffer(commandBuffer, &CommandBufferBeginInfo)};
             if (Result != VK_SUCCESS)
             {
                 SPDLOG_CRITICAL("Failed to beging recording in Command buffer, error: {}.", string_VkResult(Result));
@@ -807,12 +872,12 @@ private:
             Viewport.height = static_cast<float>(PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.height);
             Viewport.minDepth = .0f;
             Viewport.maxDepth = 1.f;
-            vkCmdSetViewport(CommandBuffer, 0, 1, &Viewport);
+            vkCmdSetViewport(commandBuffer, 0, 1, &Viewport);
 
             VkRect2D Scissor{};
             Scissor.offset = {0, 0};
             Scissor.extent = PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent;
-            vkCmdSetScissor(CommandBuffer, 0, 1, &Scissor);
+            vkCmdSetScissor(commandBuffer, 0, 1, &Scissor);
 
             vkCmdDraw(commandBuffer, 3, 1, 0, 0);
             vkCmdEndRenderPass(commandBuffer);
@@ -960,3 +1025,24 @@ private:
     }
 
 };
+
+static void FramebufferResizeCallback(GLFWwindow *AppPointer, int width, int height)
+{
+    auto app = reinterpret_cast<App*>(glfwGetWindowUserPointer(AppPointer));
+    // int a, b;
+    // glfwGetFramebufferSize(AppPointer, &a, &b);
+    // SPDLOG_CRITICAL("{} {} / {} {} / {} {}", app->WIDTH, app->HEIGHT, width, height, a, b);
+    app->SetWindowSize(app->WIDTH, app->HEIGHT);
+}
+static void WindwoResizeCallback(GLFWwindow *AppPointer, int width, int height)
+{
+    auto app = reinterpret_cast<App*>(glfwGetWindowUserPointer(AppPointer));
+    app->WIDTH = width;
+    app->HEIGHT = height;
+    app->SetWindowSize(width, height);
+
+}
+// static void WindowMaximizeCallback(GLFWwindow *AppPointer, int maximized)
+// {
+// }
+

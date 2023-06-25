@@ -5,7 +5,7 @@ int main(int argc, char *argv[])
 
     try
     {
-        App app{1920, 1080, "HV"};
+        App app{0, 0, "HV"};
     }
     catch (const std::exception &e)
     {
