@@ -30,6 +30,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
 #include <spdlog/spdlog.h>
 #include <GLFW/glfw3native.h>
 #include <vulkan/vk_enum_string_helper.h>
@@ -97,6 +98,11 @@ struct SwapChainProperties
     VkSurfaceCapabilitiesKHR Capabilities;
     std::vector<VkSurfaceFormatKHR> Format;
     std::vector<VkPresentModeKHR> PresentModes;
+};
+struct Vertex
+{
+    glm::vec3 coordinate;
+    glm::vec4 color;
 };
 
 static void FramebufferResizeCallback(GLFWwindow *AppPointer, int width, int height);
@@ -545,6 +551,11 @@ private:
         }
         int width, height;
         glfwGetFramebufferSize(window, &width, &height);
+        while (width == 0 || height == 0) 
+        {
+            glfwGetFramebufferSize(window, &width, &height);
+            glfwWaitEvents();
+        }
         PhysiacalDeviceSwapchainProperties.Capabilities.maxImageExtent.width = DISPLAY_WIDTH;
         PhysiacalDeviceSwapchainProperties.Capabilities.maxImageExtent.height = DISPLAY_HEIGHT;
         PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.width = std::clamp(static_cast<uint32_t>(width), PhysiacalDeviceSwapchainProperties.Capabilities.minImageExtent.width, PhysiacalDeviceSwapchainProperties.Capabilities.maxImageExtent.width);
@@ -594,8 +605,14 @@ private:
 
     void ReCreateSwapChain()
     {
+        int w, h;
+        glfwGetFramebufferSize(window, &w, &h);
+        while (!(w|| h)) 
+        {
+            glfwGetFramebufferSize(window, &w, &h);
+            glfwWaitEvents();
+        }
         DestroySwapchain();
-
         CreateSwapchain();
         CreateImageViews();
         CreateRenderPass();
