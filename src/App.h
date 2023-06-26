@@ -20,6 +20,7 @@ const bool APP_DEBUG = false;
 #include <set>
 #include <limits>
 #include <vector>
+#include <array>
 #include <format>
 #include <string>
 #include <cstdlib>
@@ -29,12 +30,12 @@ const bool APP_DEBUG = false;
 #include <iostream>
 #include <stdexcept>
 #include <algorithm>
-#include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
+#include <GLFW/glfw3.h>
 #include <spdlog/spdlog.h>
 #include <GLFW/glfw3native.h>
-#include <vulkan/vk_enum_string_helper.h>
 #include <spdlog/sinks/stdout_sinks.h>
+#include <vulkan/vk_enum_string_helper.h>
 
 namespace
 {
@@ -103,6 +104,30 @@ struct Vertex
 {
     glm::vec3 coordinate;
     glm::vec4 color;
+    static VkVertexInputBindingDescription InputBindingDescription()
+    {
+        VkVertexInputBindingDescription VertexInputBindingDescription{};
+        VertexInputBindingDescription.binding   = 0;
+        VertexInputBindingDescription.stride    = sizeof( Vertex );
+        VertexInputBindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        return VertexInputBindingDescription;
+    }
+
+    static std::array<VkVertexInputAttributeDescription, 2> InputAttributeDescription()
+    {
+        std::array<VkVertexInputAttributeDescription, 2> VertexInputAttributeDescription{};
+        VertexInputAttributeDescription[ 0 ].binding  = 0;
+        VertexInputAttributeDescription[ 0 ].location = 0;
+        VertexInputAttributeDescription[ 0 ].format   = VK_FORMAT_R32G32B32_SFLOAT;
+        VertexInputAttributeDescription[ 0 ].offset   = offsetof( Vertex, coordinate );
+
+        VertexInputAttributeDescription[ 1 ].binding  = 0;
+        VertexInputAttributeDescription[ 1 ].location = 1;
+        VertexInputAttributeDescription[ 1 ].format   = VK_FORMAT_R32G32B32A32_SFLOAT;
+        VertexInputAttributeDescription[ 1 ].offset   = offsetof( Vertex, color );
+
+        return VertexInputAttributeDescription;
+    }
 };
 
 static const std::vector<Vertex> ObjectVertices{
@@ -110,8 +135,8 @@ static const std::vector<Vertex> ObjectVertices{
     { { .5f, .5f, .0f }, { .0f, 1.f, .0f, 1.f } },
     { { -.5f, .5f, .0f }, { .0f, 0.f, 1.f, 1.f } } };
 
-static void FramebufferResizeCallback( GLFWwindow *AppPointer, int width, int height );
-static void WindwoResizeCallback( GLFWwindow *AppPointer, int width, int height );
+static void FramebufferResizeCallback( GLFWwindow *, int, int );
+static void WindwoResizeCallback( GLFWwindow *, int, int );
 // static void WindowMaximizeCallback(GLFWwindow *AppPointer, int maximized);
 
 class App
@@ -133,6 +158,8 @@ class App
     ~App()
     {
         DestroySwapchain();
+        vkDestroyBuffer( LogicalDevice, VertexBuffer, nullptr );
+        vkFreeMemory( LogicalDevice, VertexBufferMemory, nullptr );
         vkDestroyCommandPool( LogicalDevice, CommandPool, nullptr );
         for( uint8_t i{ 0 }; i < _MaxFramesInFlight; i++ )
         {
@@ -198,6 +225,9 @@ class App
     std::vector<VkFramebuffer> SwapchainFrameBuffers;
     VkCommandPool CommandPool;
     std::vector<VkCommandBuffer> CommandBuffers;
+    VkBuffer VertexBuffer;
+    VkDeviceMemory VertexBufferMemory;
+    VkPhysicalDeviceMemoryProperties PhysicalDeviceMemoryProperties;
     std::vector<VkSemaphore> ImageAvailableSemaphores;
     std::vector<VkSemaphore> RenderFinishedSemaphores;
     std::vector<VkFence> WaitFrames;
@@ -239,8 +269,7 @@ class App
         VkResult Result{ vkCreateWin32SurfaceKHR( instance, &createInfo, nullptr, &Surface ) };
         if( Result != VK_SUCCESS )
         {
-            SPDLOG_CRITICAL( "WIN32 surface wasn't be created, error: {}", string_VkResult( Result ) );
-            throw std::runtime_error( std::format( "WIN32 surface wasn't be created, error: {}", string_VkResult( Result ) ) );
+            _CriticalThrow( std::format( "WIN32 surface wasn't be created, error: {}", string_VkResult( Result ) ) );
         }
 #elif defined( __LINUX__ )
         VkWin32SurfaceCreateInfoKHR createInfo{};
@@ -250,8 +279,7 @@ class App
         VkResult Result{ vkCreateXcbSurfaceKHR( instance, &createInfo, nullptr, &Surface ) };
         if( Result != VK_SUCCESS )
         {
-            SPDLOG_CRITICAL( "Linux surface wasn't be created, error: {}", string_VkResult( Result ) );
-            throw std::runtime_error( std::format( "Linux surface wasn't be created, error: {}", string_VkResult( Result ) ) );
+            _CriticalThrow( std::format( "Linux surface wasn't be created, error: {}", string_VkResult( Result ) ) );
         }
 #endif
         GetPhysicalDevice();
@@ -262,6 +290,7 @@ class App
         CreateGraphicsPipelines();
         CreateFrameBuffers();
         CreateCommandPool();
+        CreateVertexBuffer();
         CreateCommandBuffers();
         VkSemaphoreCreateInfo semaphoreInfo{};
         semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -277,20 +306,17 @@ class App
             Result = vkCreateSemaphore( LogicalDevice, &semaphoreInfo, nullptr, &ImageAvailableSemaphores[ i ] );
             if( Result != VK_SUCCESS )
             {
-                SPDLOG_CRITICAL( "Failed to create Semaphore, error: {}.", string_VkResult( Result ) );
-                throw std::runtime_error( std::format( "Failed to create Semaphore, error: {}.", string_VkResult( Result ) ) );
+                _CriticalThrow( std::format( "Failed to create Semaphore, error: {}.", string_VkResult( Result ) ) );
             }
             Result = vkCreateSemaphore( LogicalDevice, &semaphoreInfo, nullptr, &RenderFinishedSemaphores[ i ] );
             if( Result != VK_SUCCESS )
             {
-                SPDLOG_CRITICAL( "Failed to create Semaphore, error: {}.", string_VkResult( Result ) );
-                throw std::runtime_error( std::format( "Failed to create Semaphore, error: {}.", string_VkResult( Result ) ) );
+                _CriticalThrow( std::format( "Failed to create Semaphore, error: {}.", string_VkResult( Result ) ) );
             }
             Result = vkCreateFence( LogicalDevice, &FenceInfo, nullptr, &WaitFrames[ i ] );
             if( Result != VK_SUCCESS )
             {
-                SPDLOG_CRITICAL( "Failed to create Semaphore, error: {}.", string_VkResult( Result ) );
-                throw std::runtime_error( std::format( "Failed to create Semaphore, error: {}.", string_VkResult( Result ) ) );
+                _CriticalThrow( std::format( "Failed to create Semaphore, error: {}.", string_VkResult( Result ) ) );
             }
         }
     }
@@ -316,8 +342,7 @@ class App
                 ReCreateSwapChain();
                 return;
             default:
-                SPDLOG_CRITICAL( "Failed to Acqueire image from swapchain." );
-                throw std::runtime_error( "Failed to Acqueire image from swapchain." );
+                _CriticalThrow( "Failed to Acqueire image from swapchain." );
         }
         vkResetFences( LogicalDevice, 1, &WaitFrames[ _CurrentFrame ] );
         vkResetCommandBuffer( CommandBuffers[ _CurrentFrame ], /*VkCommandBufferResetFlagBits*/ 0 );
@@ -338,8 +363,7 @@ class App
         VkResult Result{ vkQueueSubmit( LogicalDeviceGraphickQueue, 1, &submitInfo, WaitFrames[ _CurrentFrame ] ) };
         if( Result != VK_SUCCESS )
         {
-            SPDLOG_CRITICAL( "Failed to Submit draw frame, error: {}.", string_VkResult( Result ) );
-            throw std::runtime_error( std::format( "Failed to Submit draw frame, error: {}.", string_VkResult( Result ) ) );
+            _CriticalThrow( std::format( "Failed to Submit draw frame, error: {}.", string_VkResult( Result ) ) );
         }
         VkPresentInfoKHR PresentInfo{};
         PresentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -376,8 +400,7 @@ class App
         vkEnumeratePhysicalDevices( instance, &CountPhysicalDevices, nullptr );
         if( !CountPhysicalDevices )
         {
-            SPDLOG_CRITICAL( "Not finded physical device.", CountPhysicalDevices );
-            throw std::runtime_error( "Failed to find Physical Device." );
+            _CriticalThrow( "Failed to find Physical Device." );
         }
         std::vector<VkPhysicalDevice> PhysicalDevices{ CountPhysicalDevices };
         vkEnumeratePhysicalDevices( instance, &CountPhysicalDevices, PhysicalDevices.data() );
@@ -390,10 +413,10 @@ class App
         {
             PhysicalDeviceProperties = {};
             PhysicalDeviceFeatures   = {};
-            SPDLOG_CRITICAL( "Instance haven't suitable Physical Devices." );
-            throw std::runtime_error( "Failed to find suitable Physical Devices." );
+            _CriticalThrow( "Failed to find suitable Physical Devices." );
         }
         SPDLOG_INFO( "Selected {}.", PhysicalDeviceProperties.deviceName );
+        vkGetPhysicalDeviceMemoryProperties( PhysicalDevice, &PhysicalDeviceMemoryProperties );
     }
 
     bool isDeviceSuitable( VkPhysicalDevice device )
@@ -484,7 +507,7 @@ class App
         // extension
 
         VkResult DeviceCreateCode = vkCreateDevice( PhysicalDevice, &createInfo, nullptr, &LogicalDevice );
-        if( DeviceCreateCode != VK_SUCCESS ) throw std::runtime_error( std::format( "Failed create logic device, error code: {}.", string_VkResult( DeviceCreateCode ) ) );
+        if( DeviceCreateCode != VK_SUCCESS ) _CriticalThrow( std::format( "Failed create logic device, error code: {}.", string_VkResult( DeviceCreateCode ) ) );
         vkGetDeviceQueue( LogicalDevice, PhysicalDeviceIndices.graphicsFamily.value(), 0, &LogicalDeviceGraphickQueue );
         vkGetDeviceQueue( LogicalDevice, PhysicalDeviceIndices.presentFamily.value(), 0, &LogicalDevicePresentQueue );
     }
@@ -527,8 +550,7 @@ class App
             VkResult Result{ vkCreateImageView( LogicalDevice, &createInfo, nullptr, &SwapchainImgsView[ i ] ) };
             if( Result != VK_SUCCESS )
             {
-                SPDLOG_CRITICAL( "Failed to create imageView, error {}.", string_VkResult( Result ) );
-                throw std::runtime_error( std::format( "Failed to create imageView, error {}.", string_VkResult( Result ) ) );
+                _CriticalThrow( std::format( "Failed to create imageView, error {}.", string_VkResult( Result ) ) );
             }
         }
     }
@@ -594,8 +616,7 @@ class App
         VkResult Result{ vkCreateSwapchainKHR( LogicalDevice, &createInfo, nullptr, &SwapChain ) };
         if( Result != VK_SUCCESS )
         {
-            SPDLOG_CRITICAL( "Swapchain wasn't be created, error: {}", string_VkResult( Result ) );
-            throw std::runtime_error( std::format( "Swapchain wasn't be created, error: {}", string_VkResult( Result ) ) );
+            _CriticalThrow( std::format( "Swapchain wasn't be created, error: {}", string_VkResult( Result ) ) );
         }
         vkGetSwapchainImagesKHR( LogicalDevice, SwapChain, &imageCount, nullptr );
         SwapchainImgs.resize( imageCount );
@@ -660,8 +681,7 @@ class App
         VkResult Result{ vkCreateRenderPass( LogicalDevice, &renderPassInfo, nullptr, &RenderPass ) };
         if( Result != VK_SUCCESS )
         {
-            SPDLOG_CRITICAL( "Failed to create render pass, error: {}.", string_VkResult( Result ) );
-            throw std::runtime_error( std::format( "Failed to create render pass, error: {}.", string_VkResult( Result ) ) );
+            _CriticalThrow( std::format( "Failed to create render pass, error: {}.", string_VkResult( Result ) ) );
         }
     }
 
@@ -687,10 +707,14 @@ class App
         dStatescreateInfo.dynamicStateCount = static_cast<uint32_t>( dStates.size() );
         dStatescreateInfo.pDynamicStates    = dStates.data();
 
+        auto bindingDescription    = Vertex::InputBindingDescription();
+        auto attributeDescriptions = Vertex::InputAttributeDescription();
         VkPipelineVertexInputStateCreateInfo vertexInputCreateInfo{};
         vertexInputCreateInfo.sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        vertexInputCreateInfo.vertexBindingDescriptionCount   = 0;
-        vertexInputCreateInfo.vertexAttributeDescriptionCount = 0;
+        vertexInputCreateInfo.vertexBindingDescriptionCount   = 1;
+        vertexInputCreateInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>( attributeDescriptions.size() );
+        vertexInputCreateInfo.pVertexBindingDescriptions      = &bindingDescription;
+        vertexInputCreateInfo.pVertexAttributeDescriptions    = attributeDescriptions.data();
 
         VkPipelineInputAssemblyStateCreateInfo inputAssemblyCreateInfo{};
         inputAssemblyCreateInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -746,8 +770,7 @@ class App
         VkResult Result{ vkCreatePipelineLayout( LogicalDevice, &pipelineLayoutInfo, nullptr, &PipelineLayout ) };
         if( Result != VK_SUCCESS )
         {
-            SPDLOG_CRITICAL( "Failed to create pipeline layout, error: {}", string_VkResult( Result ) );
-            throw std::runtime_error( std::format( "Failed to create pipeline layout, error: {}", string_VkResult( Result ) ) );
+            _CriticalThrow( std::format( "Failed to create pipeline layout, error: {}", string_VkResult( Result ) ) );
         }
 
         VkGraphicsPipelineCreateInfo GraphicPipeLineCreateInfo{};
@@ -767,8 +790,7 @@ class App
         Result                                        = vkCreateGraphicsPipelines( LogicalDevice, nullptr, 1, &GraphicPipeLineCreateInfo, nullptr, &GraphicsPipeline );
         if( Result != VK_SUCCESS )
         {
-            SPDLOG_CRITICAL( "Failed to create Graphics pipeline, error: {}.", string_VkResult( Result ) );
-            throw std::runtime_error( std::format( "Failed to create Graphics pipeline, error: {}.", string_VkResult( Result ) ) );
+            _CriticalThrow( std::format( "Failed to create Graphics pipeline, error: {}.", string_VkResult( Result ) ) );
         }
     }
 
@@ -777,8 +799,7 @@ class App
         std::ifstream File{ shPath, std::fstream::ate | std::fstream::binary };
         if( !File.is_open() )
         {
-            SPDLOG_CRITICAL( "Shader binary {} can't be opened.", shPath );
-            throw std::runtime_error( std::format( "Shader binary {} can't be opened.", shPath ) );
+            _CriticalThrow( std::format( "Shader binary {} can't be opened.", shPath ) );
         }
         size_t shBsize{ static_cast<size_t>( File.tellg() ) };
         std::vector<char> Data( shBsize );
@@ -793,8 +814,7 @@ class App
         VkResult Result{ vkCreateShaderModule( LogicalDevice, &createInfo, nullptr, &shaderModule ) };
         if( Result != VK_SUCCESS )
         {
-            SPDLOG_CRITICAL( "Failed to create shader module for {}, error:{}.", shPath, string_VkResult( Result ) );
-            throw std::runtime_error( std::format( "Failed to create shader module for {}, error:{}.", shPath, string_VkResult( Result ) ) );
+            _CriticalThrow( std::format( "Failed to create shader module for {}, error:{}.", shPath, string_VkResult( Result ) ) );
         }
         return shaderModule;
     }
@@ -815,8 +835,7 @@ class App
             VkResult Result{ vkCreateFramebuffer( LogicalDevice, &FrameBufferCreateInfo, nullptr, &SwapchainFrameBuffers[ i ] ) };
             if( Result != VK_SUCCESS )
             {
-                SPDLOG_CRITICAL( "Failed to create Swapchain frame buffer, error: {}.", string_VkResult( Result ) );
-                throw std::runtime_error( std::format( "Failed to create Swapchain frame buffer, error: {}.", string_VkResult( Result ) ) );
+                _CriticalThrow( std::format( "Failed to create Swapchain frame buffer, error: {}.", string_VkResult( Result ) ) );
             }
         }
     }
@@ -830,9 +849,54 @@ class App
         VkResult Result{ vkCreateCommandPool( LogicalDevice, &CommandPoolCreateInfo, nullptr, &CommandPool ) };
         if( Result != VK_SUCCESS )
         {
-            SPDLOG_CRITICAL( "Failed to create grapchi Command pool, error: {}.", string_VkResult( Result ) );
-            throw std::runtime_error( std::format( "Failed to create grapchi Command pool, error: {}.", string_VkResult( Result ) ) );
+            _CriticalThrow( std::format( "Failed to create grapchi Command pool, error: {}.", string_VkResult( Result ) ) );
         }
+    }
+
+    void CreateVertexBuffer()
+    {
+        VkBufferCreateInfo BufferCreateInfo{};
+        BufferCreateInfo.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        BufferCreateInfo.size        = sizeof( Vertex ) * ObjectVertices.size();
+        BufferCreateInfo.usage       = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+        BufferCreateInfo.flags       = 0;
+        BufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VkResult Result{ vkCreateBuffer( LogicalDevice, &BufferCreateInfo, nullptr, &VertexBuffer ) };
+        if( Result != VK_SUCCESS )
+        {
+            _CriticalThrow( std::format( "Failed to create Vertex buffer, error: {}.", string_VkResult( Result ) ) );
+        }
+        VkMemoryRequirements Requirements;
+        vkGetBufferMemoryRequirements( LogicalDevice, VertexBuffer, &Requirements );
+        VkMemoryAllocateInfo MemoryAllocateInfo{};
+        MemoryAllocateInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        MemoryAllocateInfo.allocationSize  = Requirements.size;
+        MemoryAllocateInfo.memoryTypeIndex = MemoryTypeIndex( Requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT );
+        Result                             = vkAllocateMemory( LogicalDevice, &MemoryAllocateInfo, nullptr, &VertexBufferMemory );
+        if( Result != VK_SUCCESS )
+        {
+            _CriticalThrow( std::format( "Failed to allocate Vertex buffer memory, error: {}.", string_VkResult( Result ) ) );
+        }
+        Result = vkBindBufferMemory( LogicalDevice, VertexBuffer, VertexBufferMemory, 0 );
+        if( Result != VK_SUCCESS )
+        {
+            _CriticalThrow( std::format( "Failed to Bind Vertex buffer to Vertex buffer memory, error: {}.", string_VkResult( Result ) ) );
+        }
+        void *data;
+        vkMapMemory( LogicalDevice, VertexBufferMemory, 0, VK_WHOLE_SIZE, 0, &data );
+        memcpy( data, ObjectVertices.data(), static_cast<size_t>( Requirements.size ) );
+        vkUnmapMemory( LogicalDevice, VertexBufferMemory );
+    }
+
+    uint32_t MemoryTypeIndex( uint32_t type, VkMemoryPropertyFlags properties )
+    {
+
+        for( uint32_t i{ 0 }; i < PhysicalDeviceMemoryProperties.memoryTypeCount; i++ )
+        {
+            if( ( type & ( 1 << i ) ) && ( !( ( PhysicalDeviceMemoryProperties.memoryTypes[ i ].propertyFlags & properties ) ^ properties ) ) ) return i;
+        }
+        _CriticalThrow( "Failed to find suitable memory type." );
+        return -1;
     }
 
     void CreateCommandBuffers()
@@ -846,8 +910,7 @@ class App
         VkResult Result{ vkAllocateCommandBuffers( LogicalDevice, &CommandBufferAllocateInfo, CommandBuffers.data() ) };
         if( Result != VK_SUCCESS )
         {
-            SPDLOG_CRITICAL( "Failed to allocate Command buffers, error: {}.", string_VkResult( Result ) );
-            throw std::runtime_error( std::format( "Failed to allocate Command buffers, error: {}.", string_VkResult( Result ) ) );
+            _CriticalThrow( std::format( "Failed to allocate Command buffers, error: {}.", string_VkResult( Result ) ) );
         }
     }
 
@@ -861,8 +924,7 @@ class App
         VkResult Result{ vkBeginCommandBuffer( commandBuffer, &CommandBufferBeginInfo ) };
         if( Result != VK_SUCCESS )
         {
-            SPDLOG_CRITICAL( "Failed to beging recording in Command buffer, error: {}.", string_VkResult( Result ) );
-            throw std::runtime_error( std::format( "Failed to beging recording in Command buffer, error: {}.", string_VkResult( Result ) ) );
+            _CriticalThrow( std::format( "Failed to beging recording in Command buffer, error: {}.", string_VkResult( Result ) ) );
         }
 
         VkRenderPassBeginInfo RenderPassBeginInfo{};
@@ -892,14 +954,18 @@ class App
         Scissor.extent = PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent;
         vkCmdSetScissor( commandBuffer, 0, 1, &Scissor );
 
+        const VkBuffer _VertexBuffers[]{ VertexBuffer };
+        const VkDeviceSize _Offsets[]{ 0 };
+
+        vkCmdBindVertexBuffers( CommandBuffers[ imI ], 0, 1, _VertexBuffers, _Offsets );
+
         vkCmdDraw( commandBuffer, 3, 1, 0, 0 );
         vkCmdEndRenderPass( commandBuffer );
 
         Result = vkEndCommandBuffer( commandBuffer );
         if( Result != VK_SUCCESS )
         {
-            SPDLOG_CRITICAL( "Failed to record Command buffer, error: {}.", string_VkResult( Result ) );
-            throw std::runtime_error( std::format( "Failed to record Command buffer, error: {}.", string_VkResult( Result ) ) );
+            _CriticalThrow( std::format( "Failed to record Command buffer, error: {}.", string_VkResult( Result ) ) );
         }
         // }
     }
@@ -907,7 +973,7 @@ class App
     void CreateVKinstance()
     {
         if( APP_DEBUG && !CheckValidationLayers() )
-            throw std::runtime_error( "Unavilable validation layer." );
+            _CriticalThrow( "Unavilable validation layer." );
 
         uint32_t glfwExtensionsCount{ 0 };
         const char **glfwExtensions = glfwGetRequiredInstanceExtensions( &glfwExtensionsCount );
@@ -961,7 +1027,7 @@ class App
         VkResult InstanceCreateCode = vkCreateInstance( &CreateInfo, nullptr, &instance );
         if( InstanceCreateCode != VK_SUCCESS )
         {
-            throw std::runtime_error( std::format( "Failed create instance, error code: {}.", string_VkResult( InstanceCreateCode ) ) );
+            _CriticalThrow( std::format( "Failed create instance, error code: {}.", string_VkResult( InstanceCreateCode ) ) );
         }
     }
 
@@ -995,7 +1061,7 @@ class App
     {
         if( !APP_DEBUG ) return;
         VkResult CreateDebugUtilsMessengerEXT_result{ CreateDebugUtilsMessengerEXT( instance, &DbgMessengerCreateInfo, nullptr, &DebugMessenger ) };
-        if( CreateDebugUtilsMessengerEXT_result != VK_SUCCESS ) throw std::runtime_error( std::format( "Failed to setup Debug Messenger, error: {}.", string_VkResult( CreateDebugUtilsMessengerEXT_result ) ) );
+        if( CreateDebugUtilsMessengerEXT_result != VK_SUCCESS ) _CriticalThrow( std::format( "Failed to setup Debug Messenger, error: {}.", string_VkResult( CreateDebugUtilsMessengerEXT_result ) ) );
     }
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
@@ -1051,6 +1117,12 @@ class App
     {
         PFN_vkDestroyDebugUtilsMessengerEXT _dstrDbgUtMsgrEXT = ( PFN_vkDestroyDebugUtilsMessengerEXT )vkGetInstanceProcAddr( instance, "vkDestroyDebugUtilsMessengerEXT" );
         if( _dstrDbgUtMsgrEXT != nullptr ) _dstrDbgUtMsgrEXT( instance, messenger, pAllocator );
+    }
+
+    void _CriticalThrow( std::string Error )
+    {
+        SPDLOG_CRITICAL( Error );
+        throw std::runtime_error( Error );
     }
 };
 
