@@ -41,6 +41,7 @@ add_custom_target(
 find_package(glfw3 REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(glm)
+find_package(tinyobjloader)
 
 add_executable(${EXECUTABLE_NAME} ${PROJECT_SRC})
 add_dependencies(${EXECUTABLE_NAME} Shaders)
@@ -50,4 +51,5 @@ target_include_directories(${EXECUTABLE_NAME} PUBLIC ${glfw3_INCLUDE_DIRS})
 target_link_libraries(${EXECUTABLE_NAME} glfw)
 target_link_libraries(${EXECUTABLE_NAME} glm::glm)
 target_link_libraries(${EXECUTABLE_NAME} spdlog::spdlog)
+target_link_libraries(${EXECUTABLE_NAME} tinyobjloader::tinyobjloader)
 # target_link_libraries(${EXECUTABLE_NAME} imgui::imgui)

@@ -14,7 +14,9 @@ const bool APP_DEBUG = true;
 #else
 #    define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_CRITICAL
 const bool APP_DEBUG = false;
+
 #endif
+#define TINYOBJLOADER_IMPLEMENTATION
 
 #include <map>
 #include <set>
@@ -33,6 +35,7 @@ const bool APP_DEBUG = false;
 #include <glm/glm.hpp>
 #include <GLFW/glfw3.h>
 #include <spdlog/spdlog.h>
+#include <tiny_obj_loader.h>
 #include <GLFW/glfw3native.h>
 #include <spdlog/sinks/stdout_sinks.h>
 #include <vulkan/vk_enum_string_helper.h>
@@ -52,7 +55,7 @@ struct _initialize
         try
         {
             spdlog::set_level( APP_DEBUG ? spdlog::level::trace : spdlog::level::critical );
-            spdlog::set_pattern( "[func %!] [line %#] [%H:%M:%S.%e] [%^%l%$] %v" );
+            spdlog::set_pattern( "[func %!] [%s:%#] [%H:%M:%S.%e] [%^%l%$] %v" );
             SPDLOG_DEBUG( "--- Start logging. ---" );
         }
         catch( const std::exception &logInitE )
@@ -130,11 +133,24 @@ struct Vertex
         return VertexInputAttributeDescription;
     }
 };
+struct Model
+{
+    Vertex *ModelVertecies;
+    uint32_t *ModelVerteciesIndices;
+};
+// struct AppData
+// {
+//     const Model *Models;
+// };
 
 static const std::vector<Vertex> ObjectVertices{
-    { { .0f, -0.5f, .0f }, { 1.f, .0f, .0f, 1.f } },
+    { { -.5f, -.5f, .0f }, { 1.f, .0f, .0f, 1.f } },
+    // { { .0f, -0.5f, .0f }, { 1.f, .0f, .0f, 1.f } },
+    { { .5f, -.5f, .0f }, { .0f, 1.f, .0f, 1.f } },
     { { .5f, .5f, .0f }, { .0f, 1.f, .0f, 1.f } },
     { { -.5f, .5f, .0f }, { .0f, 0.f, 1.f, 1.f } } };
+static const std::vector<uint16_t> ObjectVerticesIndices = {
+    0, 1, 2, 2, 3, 1 };
 
 static void FramebufferResizeCallback( GLFWwindow *, int, int );
 static void WindwoResizeCallback( GLFWwindow *, int, int );
@@ -149,8 +165,9 @@ class App
     int32_t DISPLAY_HEIGHT;
     std::string TITLE;
 
-    App( uint16_t width, uint16_t height, const char *title ) : WIDTH{ width }, HEIGHT{ height }, TITLE{ title }
+    App( uint16_t width, uint16_t height, const char *title, std::vector<std::pair<const char *, const char *>> &PathsToModels ) : WIDTH{ width }, HEIGHT{ height }, TITLE{ title }
     {
+        GetModels( PathsToModels );
         initWindow();
         initVulkan();
         CheckValidationLayers();
@@ -229,6 +246,8 @@ class App
     std::vector<VkCommandBuffer> CommandBuffers;
     VkBuffer VertexBuffer;
     VkDeviceMemory VertexBufferMemory;
+    VkBuffer VertexIndecesBuffer;
+    VkDeviceMemory VertexIndecesBufferMemory;
     VkBuffer TransferVertexBuffer;
     VkDeviceMemory TransferVertexBufferMemory;
     VkPhysicalDeviceMemoryProperties PhysicalDeviceMemoryProperties;
@@ -239,6 +258,16 @@ class App
     uint8_t _MaxFramesInFlight{ 1 };
     VkDebugUtilsMessengerEXT DebugMessenger;
     VkDebugUtilsMessengerCreateInfoEXT DbgMessengerCreateInfo{};
+
+    std::unordered_map<const char *, Model> Models;
+
+    void GetModels( std::vector<std::pair<const char *, const char *>> &PathsToModel )
+    {
+        for( const auto &Path : PathsToModel )
+        {
+            LoadModel( std::format( "../../{}", Path.first ).c_str(), Path.second );
+        }
+    }
 
     void initWindow()
     {
@@ -295,6 +324,7 @@ class App
         CreateFrameBuffers();
         CreateCommandPool();
         CreateVertexBuffer();
+        // CreateIndeciesBuffer();
         CreateCommandBuffers();
         VkSemaphoreCreateInfo semaphoreInfo{};
         semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -859,6 +889,39 @@ class App
         }
     }
 
+    void LoadModel( const char *mPath, const char *mName )
+    {
+        tinyobj::attrib_t attrib;
+        std::vector<tinyobj::shape_t> shapes;
+        std::vector<tinyobj::material_t> materials;
+        std::string warn, err;
+        std::vector<Vertex> Vertecies;
+        Model mData{};
+        if( !tinyobj::LoadObj( &attrib, &shapes, &materials, &warn, &err, mPath ) )
+        {
+            _CriticalThrow( std::format( "Failed to Load model {}:\nwarning:\t{}\nerror:{}.", mPath, warn, err ) );
+        }
+        if( warn.length() )
+            SPDLOG_WARN( "Warn with load model {}:{}", mPath, warn );
+        if( err.length() )
+            SPDLOG_ERROR( "Error with load model {}:{}", mPath, err );
+        // TODO: Load model.
+        for( const auto &shape : shapes )
+        {
+            for( const auto &index : shape.mesh.indices )
+            {
+                Vertex mVert{};
+                mVert.coordinate = {
+                    attrib.vertices[ 3 * index.vertex_index ],
+                    attrib.vertices[ 3 * index.vertex_index + 1 ],
+                    attrib.vertices[ 3 * index.vertex_index + 2 ] };
+                mVert.color = { .0f, .0f, .0f, .0f };
+                Vertecies.push_back( mVert );
+            }
+        }
+        // Models[ mName ] =
+    };
+
     void CreateBuffer( VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer &Buffer, VkDeviceMemory &BufferMemory )
     {
         VkBufferCreateInfo BufferCreateInfo{};
@@ -907,6 +970,30 @@ class App
         vkFreeMemory( LogicalDevice, TransferVertexBufferMemory, nullptr );
     }
 
+    // void CreateIndeciesBuffer()
+    // {
+    //     VkDeviceSize bufferSize = sizeof( indices[ 0 ] ) * indices.size();
+
+    //     VkBuffer stagingBuffer;
+    //     VkDeviceMemory stagingBufferMemory;
+    //     CreateBuffer( bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory );
+
+    //     void *data;
+    //     vkMapMemory( LogicalDevice, stagingBufferMemory, 0, bufferSize, 0, &data );
+    //     memcpy( data, indices.data(), ( size_t )bufferSize );
+    //     vkUnmapMemory( LogicalDevice, stagingBufferMemory );
+
+    //     CreateBuffer( bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VertexIndecesBuffer, VertexIndecesBufferMemory );
+
+    //     VkBufferCopy BufferCopy[]{ {} };
+
+    //     TransferDataBetweenBuffers( stagingBuffer, VertexIndecesBuffer, BufferCopy );
+
+    //     vkDestroyBuffer( device, stagingBuffer, nullptr );
+    //     vkFreeMemory( device, stagingBufferMemory, nullptr );
+    // }
+
+    // void TransferDataBetweenBuffers( VkBuffer bSrc, VkBuffer bDst, const VkBufferCopy *BufferCopyInfo )
     void TransferDataBetweenBuffers( VkBuffer bSrc, VkBuffer bDst, VkDeviceSize size )
     {
         VkCommandBufferAllocateInfo CommandBufferAllocateInfo{};
