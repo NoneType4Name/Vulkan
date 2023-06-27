@@ -88,10 +88,11 @@ struct QueueFamilyIndices
 {
     std::optional<uint32_t> graphicsFamily;
     std::optional<uint32_t> presentFamily;
+    std::optional<uint32_t> transferFamily;
 
     bool isComplete()
     {
-        return graphicsFamily.has_value() && presentFamily.has_value();
+        return graphicsFamily.has_value() && presentFamily.has_value() && transferFamily.has_value();
     }
 };
 struct SwapChainProperties
@@ -208,6 +209,7 @@ class App
     VkDevice LogicalDevice;
     VkQueue LogicalDeviceGraphickQueue;
     VkQueue LogicalDevicePresentQueue;
+    VkQueue LogicalDeviceTransferQueue;
     std::vector<VkPipelineShaderStageCreateInfo> ShaderStage;
     VkPipelineLayout PipelineLayout;
     VkRenderPass RenderPass;
@@ -227,6 +229,8 @@ class App
     std::vector<VkCommandBuffer> CommandBuffers;
     VkBuffer VertexBuffer;
     VkDeviceMemory VertexBufferMemory;
+    VkBuffer TransferVertexBuffer;
+    VkDeviceMemory TransferVertexBufferMemory;
     VkPhysicalDeviceMemoryProperties PhysicalDeviceMemoryProperties;
     std::vector<VkSemaphore> ImageAvailableSemaphores;
     std::vector<VkSemaphore> RenderFinishedSemaphores;
@@ -465,6 +469,7 @@ class App
         for( const auto &queueF : QueueFamilies )
         {
             if( queueF.queueFlags & VK_QUEUE_GRAPHICS_BIT ) indices.graphicsFamily = index;
+            if( queueF.queueFlags & VK_QUEUE_TRANSFER_BIT ) indices.transferFamily = index;
             VkBool32 presentSupport{ false };
             vkGetPhysicalDeviceSurfaceSupportKHR( device, index, Surface, &presentSupport );
             if( presentSupport ) indices.presentFamily = index;
@@ -479,7 +484,7 @@ class App
         std::unordered_map<uint32_t, float> QueueFamiliesPriority{
             { PhysicalDeviceIndices.graphicsFamily.value(), 1.0f },
             { PhysicalDeviceIndices.presentFamily.value(), 1.0f },
-        };
+            { PhysicalDeviceIndices.transferFamily.value(), 1.0f } };
         for( auto &QueueFamily : QueueFamiliesPriority )
         {
             VkDeviceQueueCreateInfo queueCreateInfo{};
@@ -510,6 +515,7 @@ class App
         if( DeviceCreateCode != VK_SUCCESS ) _CriticalThrow( std::format( "Failed create logic device, error code: {}.", string_VkResult( DeviceCreateCode ) ) );
         vkGetDeviceQueue( LogicalDevice, PhysicalDeviceIndices.graphicsFamily.value(), 0, &LogicalDeviceGraphickQueue );
         vkGetDeviceQueue( LogicalDevice, PhysicalDeviceIndices.presentFamily.value(), 0, &LogicalDevicePresentQueue );
+        vkGetDeviceQueue( LogicalDevice, PhysicalDeviceIndices.transferFamily.value(), 0, &LogicalDeviceTransferQueue );
     }
 
     SwapChainProperties GetSwapchainProperties( VkPhysicalDevice device )
@@ -853,39 +859,89 @@ class App
         }
     }
 
-    void CreateVertexBuffer()
+    void CreateBuffer( VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer &Buffer, VkDeviceMemory &BufferMemory )
     {
         VkBufferCreateInfo BufferCreateInfo{};
         BufferCreateInfo.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         BufferCreateInfo.size        = sizeof( Vertex ) * ObjectVertices.size();
-        BufferCreateInfo.usage       = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+        BufferCreateInfo.usage       = usage;
         BufferCreateInfo.flags       = 0;
         BufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        VkResult Result{ vkCreateBuffer( LogicalDevice, &BufferCreateInfo, nullptr, &VertexBuffer ) };
+
+        VkResult Result{ vkCreateBuffer( LogicalDevice, &BufferCreateInfo, nullptr, &Buffer ) };
         if( Result != VK_SUCCESS )
         {
             _CriticalThrow( std::format( "Failed to create Vertex buffer, error: {}.", string_VkResult( Result ) ) );
         }
+
         VkMemoryRequirements Requirements;
-        vkGetBufferMemoryRequirements( LogicalDevice, VertexBuffer, &Requirements );
+        vkGetBufferMemoryRequirements( LogicalDevice, Buffer, &Requirements );
         VkMemoryAllocateInfo MemoryAllocateInfo{};
         MemoryAllocateInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         MemoryAllocateInfo.allocationSize  = Requirements.size;
-        MemoryAllocateInfo.memoryTypeIndex = MemoryTypeIndex( Requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT );
-        Result                             = vkAllocateMemory( LogicalDevice, &MemoryAllocateInfo, nullptr, &VertexBufferMemory );
+        MemoryAllocateInfo.memoryTypeIndex = MemoryTypeIndex( Requirements.memoryTypeBits, properties );
+
+        Result = vkAllocateMemory( LogicalDevice, &MemoryAllocateInfo, nullptr, &BufferMemory );
         if( Result != VK_SUCCESS )
         {
             _CriticalThrow( std::format( "Failed to allocate Vertex buffer memory, error: {}.", string_VkResult( Result ) ) );
         }
-        Result = vkBindBufferMemory( LogicalDevice, VertexBuffer, VertexBufferMemory, 0 );
+        Result = vkBindBufferMemory( LogicalDevice, Buffer, BufferMemory, 0 );
         if( Result != VK_SUCCESS )
         {
             _CriticalThrow( std::format( "Failed to Bind Vertex buffer to Vertex buffer memory, error: {}.", string_VkResult( Result ) ) );
         }
+    }
+
+    void CreateVertexBuffer()
+    {
+        VkDeviceSize bSize{ sizeof( Vertex ) * ObjectVertices.size() };
+        CreateBuffer( bSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, TransferVertexBuffer, TransferVertexBufferMemory );
         void *data;
-        vkMapMemory( LogicalDevice, VertexBufferMemory, 0, VK_WHOLE_SIZE, 0, &data );
-        memcpy( data, ObjectVertices.data(), static_cast<size_t>( Requirements.size ) );
-        vkUnmapMemory( LogicalDevice, VertexBufferMemory );
+        vkMapMemory( LogicalDevice, TransferVertexBufferMemory, 0, bSize, 0, &data );
+        memcpy( data, ObjectVertices.data(), static_cast<size_t>( bSize ) );
+        vkUnmapMemory( LogicalDevice, TransferVertexBufferMemory );
+        CreateBuffer( bSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VertexBuffer, VertexBufferMemory );
+        TransferDataBetweenBuffers( TransferVertexBuffer, VertexBuffer, bSize );
+        vkDestroyBuffer( LogicalDevice, TransferVertexBuffer, nullptr );
+        vkFreeMemory( LogicalDevice, TransferVertexBufferMemory, nullptr );
+    }
+
+    void TransferDataBetweenBuffers( VkBuffer bSrc, VkBuffer bDst, VkDeviceSize size )
+    {
+        VkCommandBufferAllocateInfo CommandBufferAllocateInfo{};
+        CommandBufferAllocateInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        CommandBufferAllocateInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        CommandBufferAllocateInfo.commandPool        = CommandPool;
+        CommandBufferAllocateInfo.commandBufferCount = 1;
+        VkCommandBuffer CommandBuffer;
+        VkResult Result{ vkAllocateCommandBuffers( LogicalDevice, &CommandBufferAllocateInfo, &CommandBuffer ) };
+        if( Result != VK_SUCCESS )
+        {
+            _CriticalThrow( std::format( "Failed to Allocate command buffer, error: {}.", string_VkResult( Result ) ) );
+        }
+        VkCommandBufferBeginInfo CommandBufferBeginInfo{};
+        CommandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        CommandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer( CommandBuffer, &CommandBufferBeginInfo );
+        VkBufferCopy BufferCopy{};
+        BufferCopy.dstOffset = 0;
+        BufferCopy.srcOffset = 0;
+        BufferCopy.size      = size;
+        vkCmdCopyBuffer( CommandBuffer, bSrc, bDst, 1, &BufferCopy );
+        vkEndCommandBuffer( CommandBuffer );
+        VkSubmitInfo SubmitInfo{};
+        SubmitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        SubmitInfo.commandBufferCount = 1;
+        SubmitInfo.pCommandBuffers    = &CommandBuffer;
+
+        Result = vkQueueSubmit( LogicalDeviceGraphickQueue, 1, &SubmitInfo, nullptr );
+        if( Result != VK_SUCCESS )
+        {
+            _CriticalThrow( std::format( "Failed to Queue submit, error: {}.", string_VkResult( Result ) ) );
+        }
+        vkQueueWaitIdle( LogicalDeviceGraphickQueue );
+        vkFreeCommandBuffers( LogicalDevice, CommandPool, 1, &CommandBuffer );
     }
 
     uint32_t MemoryTypeIndex( uint32_t type, VkMemoryPropertyFlags properties )
@@ -959,7 +1015,7 @@ class App
 
         vkCmdBindVertexBuffers( CommandBuffers[ imI ], 0, 1, _VertexBuffers, _Offsets );
 
-        vkCmdDraw( commandBuffer, 3, 1, 0, 0 );
+        vkCmdDraw( commandBuffer, static_cast<uint32_t>( ObjectVertices.size() ), 1, 0, 0 );
         vkCmdEndRenderPass( commandBuffer );
 
         Result = vkEndCommandBuffer( commandBuffer );
