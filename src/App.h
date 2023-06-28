@@ -152,7 +152,9 @@ struct hash<Vertex>
 struct Model
 {
     std::vector<Vertex> ModelVertecies;
-    std::vector<uint64_t> ModelVerteciesIndices;
+    std::vector<uint32_t> ModelVerteciesIndices;
+    VkBufferCopy VerticesBufferCopy;
+    VkBufferCopy VertexIndeciesBufferCopy;
 };
 // struct AppData
 // {
@@ -165,8 +167,8 @@ static std::vector<Vertex> ObjectVertices{
     { { .5f, -.5f, .0f }, { .0f, 1.f, .0f, 1.f } },
     { { .5f, .5f, .0f }, { .0f, 1.f, .0f, 1.f } },
     { { -.5f, .5f, .0f }, { .0f, 0.f, 1.f, 1.f } } };
-static std::vector<uint16_t> ObjectVerticesIndices = {
-    0, 1, 2, 2, 3, 1 };
+static std::vector<uint32_t> ObjectVerticesIndices = {
+    0, 1, 2, 2, 0, 3 };
 
 static void FramebufferResizeCallback( GLFWwindow *, int, int );
 static void WindwoResizeCallback( GLFWwindow *, int, int );
@@ -183,7 +185,7 @@ class App
 
     App( uint16_t width, uint16_t height, const char *title, std::vector<std::pair<const char *, const char *>> &PathsToModels ) : WIDTH{ width }, HEIGHT{ height }, TITLE{ title }
     {
-        // GetModels( PathsToModels );
+        GetModels( PathsToModels );
         initWindow();
         initVulkan();
         CheckValidationLayers();
@@ -194,6 +196,8 @@ class App
         DestroySwapchain();
         vkDestroyBuffer( LogicalDevice, VertexBuffer, nullptr );
         vkFreeMemory( LogicalDevice, VertexBufferMemory, nullptr );
+        vkDestroyBuffer( LogicalDevice, VertexIndecesBuffer, nullptr );
+        vkFreeMemory( LogicalDevice, VertexIndecesBufferMemory, nullptr );
         vkDestroyCommandPool( LogicalDevice, CommandPool, nullptr );
         for( uint8_t i{ 0 }; i < _MaxFramesInFlight; i++ )
         {
@@ -238,7 +242,7 @@ class App
     VkInstance instance;
     VkSurfaceKHR Surface;
     const std::vector<const char *> ValidationLayers{ "VK_LAYER_KHRONOS_validation" };
-    const std::vector<const char *> RequeredDeviceExts{ VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+    const std::vector<const char *> RequeredDeviceExts{ VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME };
     VkDevice LogicalDevice;
     VkQueue LogicalDeviceGraphickQueue;
     VkQueue LogicalDevicePresentQueue;
@@ -274,7 +278,6 @@ class App
     uint8_t _MaxFramesInFlight{ 1 };
     VkDebugUtilsMessengerEXT DebugMessenger;
     VkDebugUtilsMessengerCreateInfoEXT DbgMessengerCreateInfo{};
-
     std::unordered_map<std::string, Model> Models;
 
     void GetModels( std::vector<std::pair<const char *, const char *>> &PathsToModel )
@@ -282,12 +285,8 @@ class App
         for( const auto &Path : PathsToModel )
         {
             LoadModel( std::format( "../../{}", Path.first ).c_str(), Path.second );
-            // ObjectVertices.clear();
-            // ObjectVertices.resize( Models[ "triangle" ].ModelVertecies.size() );
-            // SPDLOG_CRITICAL( "a {}", Models[ "triangle" ].ModelVertecies.size() );
-            // SPDLOG_CRITICAL("b {}", Models[ "triangle" ].ModelVertecies.
-            // std::copy( Models[ "triangle" ].ModelVertecies.begin(), Models[ "triangle" ].ModelVertecies.end(), ObjectVertices.begin() );
-            // ObjectVertices = Models[ "triangle" ].ModelVertecies;
+            ObjectVertices        = Models[ "plate" ].ModelVertecies;
+            ObjectVerticesIndices = Models[ "plate" ].ModelVerteciesIndices;
         }
     }
 
@@ -346,7 +345,7 @@ class App
         CreateFrameBuffers();
         CreateCommandPool();
         CreateVertexBuffer();
-        // CreateIndeciesBuffer();
+        CreateIndeciesBuffer();
         CreateCommandBuffers();
         VkSemaphoreCreateInfo semaphoreInfo{};
         semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -918,7 +917,7 @@ class App
         std::vector<tinyobj::material_t> materials;
         std::string warn, err;
         std::vector<Vertex> mVertecies;
-        std::vector<uint64_t> mIndecies;
+        std::vector<uint32_t> mIndecies;
         if( !tinyobj::LoadObj( &attrib, &shapes, &materials, &warn, &err, mPath ) )
         {
             _CriticalThrow( std::format( "Failed to Load model {}:\nwarning:\t{}\nerror:{}.", mPath, warn, err ) );
@@ -928,36 +927,42 @@ class App
         if( err.length() )
             SPDLOG_ERROR( "Error with load model {}:{}", mPath, err );
         Model mData;
-        std::unordered_map<Vertex, uint64_t> Indecies{};
+        std::unordered_map<Vertex, uint32_t> Indecies{};
         for( const auto &shape : shapes )
         {
             for( const auto &index : shape.mesh.indices )
             {
+                mIndecies.push_back( index.vertex_index );
+            }
+            for( size_t vert_i{ 0 }; vert_i < attrib.vertices.size(); vert_i += 3 )
+            {
                 Vertex mVert{};
                 mVert.coordinate = {
-                    attrib.vertices[ 3 * index.vertex_index ],
-                    attrib.vertices[ 3 * index.vertex_index + 1 ],
-                    attrib.vertices[ 3 * index.vertex_index + 2 ] };
+                    attrib.vertices[ vert_i ],
+                    attrib.vertices[ vert_i + 1 ],
+                    attrib.vertices[ vert_i + 2 ] };
                 mVert.color = { .0f, .0f, .0f, .0f };
                 mVertecies.push_back( mVert );
-                if( Indecies.count( mVert ) == 0 )
-                {
-                    Indecies[ mVert ] = static_cast<uint64_t>( mVertecies.size() );
-                    mVertecies.push_back( mVert );
-                }
-                mIndecies.push_back( Indecies[ mVert ] );
+                // if( Indecies.count( mVert ) == 0 )
+                // {
+                //     Indecies[ mVert ] = static_cast<uint32_t>( mVertecies.size() );
+                //     mVertecies.push_back( mVert );
+                // }
             }
+            // -1; 1; 0;; -1; -1; 0;; 1; 1; 0;; 1; -1; 0;; 0 2 1 2 3 1
         }
-        mData.ModelVertecies        = mVertecies;
-        mData.ModelVerteciesIndices = mIndecies;
-        Models[ mName ]             = mData;
+        mData.ModelVertecies                = mVertecies;
+        mData.ModelVerteciesIndices         = mIndecies;
+        mData.VerticesBufferCopy.size       = sizeof( Vertex ) * mData.ModelVertecies.size();
+        mData.VertexIndeciesBufferCopy.size = sizeof( uint32_t ) * mData.ModelVertecies.size();
+        Models[ mName ]                     = mData;
     };
 
     void CreateBuffer( VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer &Buffer, VkDeviceMemory &BufferMemory )
     {
         VkBufferCreateInfo BufferCreateInfo{};
         BufferCreateInfo.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        BufferCreateInfo.size        = sizeof( Vertex ) * ObjectVertices.size();
+        BufferCreateInfo.size        = size;
         BufferCreateInfo.usage       = usage;
         BufferCreateInfo.flags       = 0;
         BufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -1001,30 +1006,60 @@ class App
         vkFreeMemory( LogicalDevice, TransferVertexBufferMemory, nullptr );
     }
 
-    // void CreateIndeciesBuffer()
-    // {
-    //     VkDeviceSize bufferSize = sizeof( indices[ 0 ] ) * indices.size();
+    void CreateIndeciesBuffer()
+    {
+        VkDeviceSize bSize = sizeof( ObjectVerticesIndices[ 0 ] ) * ObjectVerticesIndices.size();
 
-    //     VkBuffer stagingBuffer;
-    //     VkDeviceMemory stagingBufferMemory;
-    //     CreateBuffer( bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory );
+        // VkBuffer stagingBuffer;
+        // VkDeviceMemory stagingBufferMemory;
+        CreateBuffer( bSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, TransferVertexBuffer, TransferVertexBufferMemory );
 
-    //     void *data;
-    //     vkMapMemory( LogicalDevice, stagingBufferMemory, 0, bufferSize, 0, &data );
-    //     memcpy( data, indices.data(), ( size_t )bufferSize );
-    //     vkUnmapMemory( LogicalDevice, stagingBufferMemory );
+        void *data;
+        vkMapMemory( LogicalDevice, TransferVertexBufferMemory, 0, bSize, 0, &data );
+        memcpy( data, ObjectVerticesIndices.data(), ( size_t )bSize );
+        vkUnmapMemory( LogicalDevice, TransferVertexBufferMemory );
 
-    //     CreateBuffer( bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VertexIndecesBuffer, VertexIndecesBufferMemory );
+        CreateBuffer( bSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VertexIndecesBuffer, VertexIndecesBufferMemory );
 
-    //     VkBufferCopy BufferCopy[]{ {} };
+        TransferDataBetweenBuffers( TransferVertexBuffer, VertexIndecesBuffer, bSize );
 
-    //     TransferDataBetweenBuffers( stagingBuffer, VertexIndecesBuffer, BufferCopy );
+        vkDestroyBuffer( LogicalDevice, TransferVertexBuffer, nullptr );
+        vkFreeMemory( LogicalDevice, TransferVertexBufferMemory, nullptr );
+    }
 
-    //     vkDestroyBuffer( device, stagingBuffer, nullptr );
-    //     vkFreeMemory( device, stagingBufferMemory, nullptr );
-    // }
+    void TransferDataBetweenBuffers( VkBuffer bSrc, VkBuffer bDst, const VkBufferCopy *BufferCopyInfo )
+    {
+        VkCommandBufferAllocateInfo CommandBufferAllocateInfo{};
+        CommandBufferAllocateInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        CommandBufferAllocateInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        CommandBufferAllocateInfo.commandPool        = CommandPool;
+        CommandBufferAllocateInfo.commandBufferCount = 1;
+        VkCommandBuffer CommandBuffer;
+        VkResult Result{ vkAllocateCommandBuffers( LogicalDevice, &CommandBufferAllocateInfo, &CommandBuffer ) };
+        if( Result != VK_SUCCESS )
+        {
+            _CriticalThrow( std::format( "Failed to Allocate command buffer, error: {}.", string_VkResult( Result ) ) );
+        }
+        VkCommandBufferBeginInfo CommandBufferBeginInfo{};
+        CommandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        CommandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer( CommandBuffer, &CommandBufferBeginInfo );
+        vkCmdCopyBuffer( CommandBuffer, bSrc, bDst, 1, BufferCopyInfo );
+        vkEndCommandBuffer( CommandBuffer );
+        VkSubmitInfo SubmitInfo{};
+        SubmitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        SubmitInfo.commandBufferCount = 1;
+        SubmitInfo.pCommandBuffers    = &CommandBuffer;
 
-    // void TransferDataBetweenBuffers( VkBuffer bSrc, VkBuffer bDst, const VkBufferCopy *BufferCopyInfo )
+        Result = vkQueueSubmit( LogicalDeviceGraphickQueue, 1, &SubmitInfo, nullptr );
+        if( Result != VK_SUCCESS )
+        {
+            _CriticalThrow( std::format( "Failed to Queue submit, error: {}.", string_VkResult( Result ) ) );
+        }
+        vkQueueWaitIdle( LogicalDeviceGraphickQueue );
+        vkFreeCommandBuffers( LogicalDevice, CommandPool, 1, &CommandBuffer );
+    }
+
     void TransferDataBetweenBuffers( VkBuffer bSrc, VkBuffer bDst, VkDeviceSize size )
     {
         VkCommandBufferAllocateInfo CommandBufferAllocateInfo{};
@@ -1132,8 +1167,9 @@ class App
         const VkDeviceSize _Offsets[]{ 0 };
 
         vkCmdBindVertexBuffers( CommandBuffers[ imI ], 0, 1, _VertexBuffers, _Offsets );
+        vkCmdBindIndexBuffer( CommandBuffers[ imI ], VertexIndecesBuffer, 0, VK_INDEX_TYPE_UINT32 );
 
-        vkCmdDraw( commandBuffer, static_cast<uint32_t>( ObjectVertices.size() ), 1, 0, 0 );
+        vkCmdDrawIndexed( commandBuffer, static_cast<uint32_t>( ObjectVerticesIndices.size() ), 1, 0, 0, 0 );
         vkCmdEndRenderPass( commandBuffer );
 
         Result = vkEndCommandBuffer( commandBuffer );
@@ -1171,8 +1207,7 @@ class App
         VkInstanceCreateInfo CreateInfo{};
         CreateInfo.sType            = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
         CreateInfo.pApplicationInfo = &AppInfo;
-        // CreateInfo.ppEnabledExtensionNames = exts;
-        CreateInfo.pNext = &features;
+        // CreateInfo.pNext = &features;
 
         DbgMessengerCreateInfo.sType           = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
         DbgMessengerCreateInfo.pNext           = &features;
