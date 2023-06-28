@@ -35,6 +35,7 @@ const bool APP_DEBUG = false;
 #include <glm/glm.hpp>
 #include <GLFW/glfw3.h>
 #include <spdlog/spdlog.h>
+#include <glm/gtx/hash.hpp>
 #include <tiny_obj_loader.h>
 #include <GLFW/glfw3native.h>
 #include <spdlog/sinks/stdout_sinks.h>
@@ -132,24 +133,39 @@ struct Vertex
 
         return VertexInputAttributeDescription;
     }
+    bool operator==( const Vertex &other ) const
+    {
+        return coordinate == other.coordinate && color == other.color;
+    }
 };
+namespace std
+{
+template <>
+struct hash<Vertex>
+{
+    size_t operator()( Vertex const &vertex ) const
+    {
+        return ( ( hash<glm::vec3>()( vertex.coordinate ) ^ ( hash<glm::vec3>()( vertex.color ) << 1 ) ) >> 1 );
+    }
+};
+} // namespace std
 struct Model
 {
-    Vertex *ModelVertecies;
-    uint32_t *ModelVerteciesIndices;
+    std::vector<Vertex> ModelVertecies;
+    std::vector<uint64_t> ModelVerteciesIndices;
 };
 // struct AppData
 // {
 //     const Model *Models;
 // };
 
-static const std::vector<Vertex> ObjectVertices{
+static std::vector<Vertex> ObjectVertices{
     { { -.5f, -.5f, .0f }, { 1.f, .0f, .0f, 1.f } },
     // { { .0f, -0.5f, .0f }, { 1.f, .0f, .0f, 1.f } },
     { { .5f, -.5f, .0f }, { .0f, 1.f, .0f, 1.f } },
     { { .5f, .5f, .0f }, { .0f, 1.f, .0f, 1.f } },
     { { -.5f, .5f, .0f }, { .0f, 0.f, 1.f, 1.f } } };
-static const std::vector<uint16_t> ObjectVerticesIndices = {
+static std::vector<uint16_t> ObjectVerticesIndices = {
     0, 1, 2, 2, 3, 1 };
 
 static void FramebufferResizeCallback( GLFWwindow *, int, int );
@@ -167,7 +183,7 @@ class App
 
     App( uint16_t width, uint16_t height, const char *title, std::vector<std::pair<const char *, const char *>> &PathsToModels ) : WIDTH{ width }, HEIGHT{ height }, TITLE{ title }
     {
-        GetModels( PathsToModels );
+        // GetModels( PathsToModels );
         initWindow();
         initVulkan();
         CheckValidationLayers();
@@ -259,13 +275,19 @@ class App
     VkDebugUtilsMessengerEXT DebugMessenger;
     VkDebugUtilsMessengerCreateInfoEXT DbgMessengerCreateInfo{};
 
-    std::unordered_map<const char *, Model> Models;
+    std::unordered_map<std::string, Model> Models;
 
     void GetModels( std::vector<std::pair<const char *, const char *>> &PathsToModel )
     {
         for( const auto &Path : PathsToModel )
         {
             LoadModel( std::format( "../../{}", Path.first ).c_str(), Path.second );
+            // ObjectVertices.clear();
+            // ObjectVertices.resize( Models[ "triangle" ].ModelVertecies.size() );
+            // SPDLOG_CRITICAL( "a {}", Models[ "triangle" ].ModelVertecies.size() );
+            // SPDLOG_CRITICAL("b {}", Models[ "triangle" ].ModelVertecies.
+            // std::copy( Models[ "triangle" ].ModelVertecies.begin(), Models[ "triangle" ].ModelVertecies.end(), ObjectVertices.begin() );
+            // ObjectVertices = Models[ "triangle" ].ModelVertecies;
         }
     }
 
@@ -895,8 +917,8 @@ class App
         std::vector<tinyobj::shape_t> shapes;
         std::vector<tinyobj::material_t> materials;
         std::string warn, err;
-        std::vector<Vertex> Vertecies;
-        Model mData{};
+        std::vector<Vertex> mVertecies;
+        std::vector<uint64_t> mIndecies;
         if( !tinyobj::LoadObj( &attrib, &shapes, &materials, &warn, &err, mPath ) )
         {
             _CriticalThrow( std::format( "Failed to Load model {}:\nwarning:\t{}\nerror:{}.", mPath, warn, err ) );
@@ -905,7 +927,8 @@ class App
             SPDLOG_WARN( "Warn with load model {}:{}", mPath, warn );
         if( err.length() )
             SPDLOG_ERROR( "Error with load model {}:{}", mPath, err );
-        // TODO: Load model.
+        Model mData;
+        std::unordered_map<Vertex, uint64_t> Indecies{};
         for( const auto &shape : shapes )
         {
             for( const auto &index : shape.mesh.indices )
@@ -916,10 +939,18 @@ class App
                     attrib.vertices[ 3 * index.vertex_index + 1 ],
                     attrib.vertices[ 3 * index.vertex_index + 2 ] };
                 mVert.color = { .0f, .0f, .0f, .0f };
-                Vertecies.push_back( mVert );
+                mVertecies.push_back( mVert );
+                if( Indecies.count( mVert ) == 0 )
+                {
+                    Indecies[ mVert ] = static_cast<uint64_t>( mVertecies.size() );
+                    mVertecies.push_back( mVert );
+                }
+                mIndecies.push_back( Indecies[ mVert ] );
             }
         }
-        // Models[ mName ] =
+        mData.ModelVertecies        = mVertecies;
+        mData.ModelVerteciesIndices = mIndecies;
+        Models[ mName ]             = mData;
     };
 
     void CreateBuffer( VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer &Buffer, VkDeviceMemory &BufferMemory )
