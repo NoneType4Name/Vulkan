@@ -9,6 +9,7 @@ layout( location = 0 ) out vec4 fragColor;
 void main()
 {
     // debugPrintfEXT( "My float is" );
-    gl_Position = vec4( inputPos, 1.0 );
-    fragColor   = inputColor;
+    gl_Position   = vec4( inputPos, 1.0 );
+    gl_Position.y = -gl_Position.y;
+    fragColor     = inputColor;
 }

@@ -15,7 +15,8 @@ int main( int argc, char *argv[] )
     // AppData Data{};
     // Data.Models = &Models;
     std::vector<std::pair<const char *, const char *>> ModelsPaths{
-        { "models/plate.obj", "plate" } };
+        { "models/plate.obj", "plate" },
+        { "models/test.obj", "test" } };
     try
     {
         // App app{ 0, 0, "HV", &Data };

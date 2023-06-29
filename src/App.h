@@ -37,6 +37,7 @@ const bool APP_DEBUG = false;
 #include <spdlog/spdlog.h>
 #include <glm/gtx/hash.hpp>
 #include <tiny_obj_loader.h>
+// #include <assimp/Importer.hpp>
 #include <GLFW/glfw3native.h>
 #include <spdlog/sinks/stdout_sinks.h>
 #include <vulkan/vk_enum_string_helper.h>
@@ -153,8 +154,8 @@ struct Model
 {
     std::vector<Vertex> ModelVertecies;
     std::vector<uint32_t> ModelVerteciesIndices;
-    VkBufferCopy VerticesBufferCopy;
-    VkBufferCopy VertexIndeciesBufferCopy;
+    VkBufferCopy VerticesBufferCopy{};
+    VkBufferCopy VertexIndeciesBufferCopy{};
 };
 // struct AppData
 // {
@@ -345,7 +346,7 @@ class App
         CreateFrameBuffers();
         CreateCommandPool();
         CreateVertexBuffer();
-        CreateIndeciesBuffer();
+        // CreateIndeciesBuffer();
         CreateCommandBuffers();
         VkSemaphoreCreateInfo semaphoreInfo{};
         semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -941,7 +942,11 @@ class App
                     attrib.vertices[ vert_i ],
                     attrib.vertices[ vert_i + 1 ],
                     attrib.vertices[ vert_i + 2 ] };
-                mVert.color = { .0f, .0f, .0f, .0f };
+                mVert.color = {
+                    ( glm::cos( vert_i * 0.324f ) + 1.0f ) * 0.5f,
+                    ( glm::cos( vert_i * 0.513f ) + 1.0f ) * 0.5f,
+                    ( glm::cos( vert_i + 0.762f ) + 1.0f ) * 0.5f,
+                    1.f };
                 mVertecies.push_back( mVert );
                 // if( Indecies.count( mVert ) == 0 )
                 // {
@@ -994,40 +999,88 @@ class App
 
     void CreateVertexBuffer()
     {
-        VkDeviceSize bSize{ sizeof( Vertex ) * ObjectVertices.size() };
-        CreateBuffer( bSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, TransferVertexBuffer, TransferVertexBufferMemory );
-        void *data;
-        vkMapMemory( LogicalDevice, TransferVertexBufferMemory, 0, bSize, 0, &data );
-        memcpy( data, ObjectVertices.data(), static_cast<size_t>( bSize ) );
+        size_t len_vB{ 0 };
+        std::vector<const void *> vBp;
+        std::vector<const VkBufferCopy *> vBpC;
+        size_t len_viB{ 0 };
+        std::vector<const void *> viBp;
+        std::vector<const VkBufferCopy *> viBpC;
+        std::string previuseName{};
+
+        for( auto &m : Models )
+        {
+            for( auto i{ 0 }; i < m.second.ModelVertecies.size(); i++ )
+            {
+                vBp.push_back( &m.second.ModelVertecies.data()[ i ] );
+            }
+            for( auto i{ 0 }; i < m.second.ModelVerteciesIndices.size(); i++ )
+            {
+                viBp.push_back( &m.second.ModelVerteciesIndices.data()[ i ] );
+            }
+            len_vB += m.second.VerticesBufferCopy.size;
+            len_viB += m.second.VertexIndeciesBufferCopy.size;
+            if( previuseName.empty() )
+            {
+                // m.second.VertexIndeciesBufferCopy.dstOffset = m.second.VertexIndeciesBufferCopy.srcOffset = 0;
+            }
+            else
+            {
+                m.second.VerticesBufferCopy.dstOffset = m.second.VerticesBufferCopy.srcOffset = Models[ previuseName ].VerticesBufferCopy.srcOffset + Models[ previuseName ].VerticesBufferCopy.size;
+                m.second.VertexIndeciesBufferCopy.dstOffset = m.second.VertexIndeciesBufferCopy.srcOffset = Models[ previuseName ].VertexIndeciesBufferCopy.srcOffset + Models[ previuseName ].VertexIndeciesBufferCopy.size;
+            }
+            previuseName = m.first;
+            vBpC.push_back( &m.second.VerticesBufferCopy );
+            viBpC.push_back( &m.second.VertexIndeciesBufferCopy );
+        }
+
+        void *dataB;
+        // VkDeviceSize bSize{ len_vB };
+        CreateBuffer( len_vB, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, TransferVertexBuffer, TransferVertexBufferMemory );
+        vkMapMemory( LogicalDevice, TransferVertexBufferMemory, 0, len_vB, 0, &dataB );
+        memcpy( dataB, *vBp.data(), static_cast<size_t>( len_vB ) );
         vkUnmapMemory( LogicalDevice, TransferVertexBufferMemory );
-        CreateBuffer( bSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VertexBuffer, VertexBufferMemory );
-        TransferDataBetweenBuffers( TransferVertexBuffer, VertexBuffer, bSize );
+        CreateBuffer( len_vB, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VertexBuffer, VertexBufferMemory );
+        TransferDataBetweenBuffers( TransferVertexBuffer, VertexBuffer, vBpC );
+        vkDestroyBuffer( LogicalDevice, TransferVertexBuffer, nullptr );
+        vkFreeMemory( LogicalDevice, TransferVertexBufferMemory, nullptr );
+
+        void *dataBi;
+        CreateBuffer( len_viB, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, TransferVertexBuffer, TransferVertexBufferMemory );
+
+        vkMapMemory( LogicalDevice, TransferVertexBufferMemory, 0, len_viB, 0, &dataBi );
+        memcpy( dataBi, *viBp.data(), len_viB );
+        vkUnmapMemory( LogicalDevice, TransferVertexBufferMemory );
+
+        CreateBuffer( len_viB, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VertexIndecesBuffer, VertexIndecesBufferMemory );
+
+        TransferDataBetweenBuffers( TransferVertexBuffer, VertexIndecesBuffer, viBpC );
+
         vkDestroyBuffer( LogicalDevice, TransferVertexBuffer, nullptr );
         vkFreeMemory( LogicalDevice, TransferVertexBufferMemory, nullptr );
     }
 
-    void CreateIndeciesBuffer()
-    {
-        VkDeviceSize bSize = sizeof( ObjectVerticesIndices[ 0 ] ) * ObjectVerticesIndices.size();
+    // void CreateIndeciesBuffer()
+    // {
+    //     VkDeviceSize bSize = sizeof( ObjectVerticesIndices[ 0 ] ) * ObjectVerticesIndices.size();
 
-        // VkBuffer stagingBuffer;
-        // VkDeviceMemory stagingBufferMemory;
-        CreateBuffer( bSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, TransferVertexBuffer, TransferVertexBufferMemory );
+    //     // VkBuffer stagingBuffer;
+    //     // VkDeviceMemory stagingBufferMemory;
+    //     CreateBuffer( bSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, TransferVertexBuffer, TransferVertexBufferMemory );
 
-        void *data;
-        vkMapMemory( LogicalDevice, TransferVertexBufferMemory, 0, bSize, 0, &data );
-        memcpy( data, ObjectVerticesIndices.data(), ( size_t )bSize );
-        vkUnmapMemory( LogicalDevice, TransferVertexBufferMemory );
+    //     void *data;
+    //     vkMapMemory( LogicalDevice, TransferVertexBufferMemory, 0, bSize, 0, &data );
+    //     memcpy( data, ObjectVerticesIndices.data(), ( size_t )bSize );
+    //     vkUnmapMemory( LogicalDevice, TransferVertexBufferMemory );
 
-        CreateBuffer( bSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VertexIndecesBuffer, VertexIndecesBufferMemory );
+    //     CreateBuffer( bSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VertexIndecesBuffer, VertexIndecesBufferMemory );
 
-        TransferDataBetweenBuffers( TransferVertexBuffer, VertexIndecesBuffer, bSize );
+    //     TransferDataBetweenBuffers( TransferVertexBuffer, VertexIndecesBuffer, bSize );
 
-        vkDestroyBuffer( LogicalDevice, TransferVertexBuffer, nullptr );
-        vkFreeMemory( LogicalDevice, TransferVertexBufferMemory, nullptr );
-    }
+    //     vkDestroyBuffer( LogicalDevice, TransferVertexBuffer, nullptr );
+    //     vkFreeMemory( LogicalDevice, TransferVertexBufferMemory, nullptr );
+    // }
 
-    void TransferDataBetweenBuffers( VkBuffer bSrc, VkBuffer bDst, const VkBufferCopy *BufferCopyInfo )
+    void TransferDataBetweenBuffers( VkBuffer bSrc, VkBuffer bDst, std::vector<const VkBufferCopy *> BufferCopyInfo )
     {
         VkCommandBufferAllocateInfo CommandBufferAllocateInfo{};
         CommandBufferAllocateInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -1044,7 +1097,7 @@ class App
         CommandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         CommandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer( CommandBuffer, &CommandBufferBeginInfo );
-        vkCmdCopyBuffer( CommandBuffer, bSrc, bDst, 1, BufferCopyInfo );
+        vkCmdCopyBuffer( CommandBuffer, bSrc, bDst, static_cast<uint32_t>( BufferCopyInfo.size() ), *BufferCopyInfo.data() );
         vkEndCommandBuffer( CommandBuffer );
         VkSubmitInfo SubmitInfo{};
         SubmitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1060,42 +1113,42 @@ class App
         vkFreeCommandBuffers( LogicalDevice, CommandPool, 1, &CommandBuffer );
     }
 
-    void TransferDataBetweenBuffers( VkBuffer bSrc, VkBuffer bDst, VkDeviceSize size )
-    {
-        VkCommandBufferAllocateInfo CommandBufferAllocateInfo{};
-        CommandBufferAllocateInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        CommandBufferAllocateInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        CommandBufferAllocateInfo.commandPool        = CommandPool;
-        CommandBufferAllocateInfo.commandBufferCount = 1;
-        VkCommandBuffer CommandBuffer;
-        VkResult Result{ vkAllocateCommandBuffers( LogicalDevice, &CommandBufferAllocateInfo, &CommandBuffer ) };
-        if( Result != VK_SUCCESS )
-        {
-            _CriticalThrow( std::format( "Failed to Allocate command buffer, error: {}.", string_VkResult( Result ) ) );
-        }
-        VkCommandBufferBeginInfo CommandBufferBeginInfo{};
-        CommandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        CommandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer( CommandBuffer, &CommandBufferBeginInfo );
-        VkBufferCopy BufferCopy{};
-        BufferCopy.dstOffset = 0;
-        BufferCopy.srcOffset = 0;
-        BufferCopy.size      = size;
-        vkCmdCopyBuffer( CommandBuffer, bSrc, bDst, 1, &BufferCopy );
-        vkEndCommandBuffer( CommandBuffer );
-        VkSubmitInfo SubmitInfo{};
-        SubmitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        SubmitInfo.commandBufferCount = 1;
-        SubmitInfo.pCommandBuffers    = &CommandBuffer;
+    // void TransferDataBetweenBuffers( VkBuffer bSrc, VkBuffer bDst, VkDeviceSize size )
+    // {
+    //     VkCommandBufferAllocateInfo CommandBufferAllocateInfo{};
+    //     CommandBufferAllocateInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    //     CommandBufferAllocateInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    //     CommandBufferAllocateInfo.commandPool        = CommandPool;
+    //     CommandBufferAllocateInfo.commandBufferCount = 1;
+    //     VkCommandBuffer CommandBuffer;
+    //     VkResult Result{ vkAllocateCommandBuffers( LogicalDevice, &CommandBufferAllocateInfo, &CommandBuffer ) };
+    //     if( Result != VK_SUCCESS )
+    //     {
+    //         _CriticalThrow( std::format( "Failed to Allocate command buffer, error: {}.", string_VkResult( Result ) ) );
+    //     }
+    //     VkCommandBufferBeginInfo CommandBufferBeginInfo{};
+    //     CommandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    //     CommandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    //     vkBeginCommandBuffer( CommandBuffer, &CommandBufferBeginInfo );
+    //     VkBufferCopy BufferCopy{};
+    //     BufferCopy.dstOffset = 0;
+    //     BufferCopy.srcOffset = 0;
+    //     BufferCopy.size      = size;
+    //     vkCmdCopyBuffer( CommandBuffer, bSrc, bDst, 1, &BufferCopy );
+    //     vkEndCommandBuffer( CommandBuffer );
+    //     VkSubmitInfo SubmitInfo{};
+    //     SubmitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    //     SubmitInfo.commandBufferCount = 1;
+    //     SubmitInfo.pCommandBuffers    = &CommandBuffer;
 
-        Result = vkQueueSubmit( LogicalDeviceGraphickQueue, 1, &SubmitInfo, nullptr );
-        if( Result != VK_SUCCESS )
-        {
-            _CriticalThrow( std::format( "Failed to Queue submit, error: {}.", string_VkResult( Result ) ) );
-        }
-        vkQueueWaitIdle( LogicalDeviceGraphickQueue );
-        vkFreeCommandBuffers( LogicalDevice, CommandPool, 1, &CommandBuffer );
-    }
+    //     Result = vkQueueSubmit( LogicalDeviceGraphickQueue, 1, &SubmitInfo, nullptr );
+    //     if( Result != VK_SUCCESS )
+    //     {
+    //         _CriticalThrow( std::format( "Failed to Queue submit, error: {}.", string_VkResult( Result ) ) );
+    //     }
+    //     vkQueueWaitIdle( LogicalDeviceGraphickQueue );
+    //     vkFreeCommandBuffers( LogicalDevice, CommandPool, 1, &CommandBuffer );
+    // }
 
     uint32_t MemoryTypeIndex( uint32_t type, VkMemoryPropertyFlags properties )
     {
