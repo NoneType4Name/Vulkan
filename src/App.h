@@ -280,6 +280,8 @@ class App
     VkDebugUtilsMessengerEXT DebugMessenger;
     VkDebugUtilsMessengerCreateInfoEXT DbgMessengerCreateInfo{};
     std::unordered_map<std::string, Model> Models;
+    std::vector<VkDeviceSize> VerteciesOffSets{};
+    std::vector<VkDeviceSize> IndeciesOffSets{};
 
     void GetModels( std::vector<std::pair<const char *, const char *>> &PathsToModel )
     {
@@ -481,10 +483,10 @@ class App
         vkGetPhysicalDeviceFeatures( device, &PhysicalDeviceFeatures );
         auto indices{ findQueueFamilies( device ) };
         bool dSupportExts{ isDeviceSupportExtensions( device ) };
-        if( !(
-                indices.isComplete() ||
-                ( PhysicalDeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && PhysicalDeviceFeatures.geometryShader ) ||
-                dSupportExts ) ) return false;
+        if( (
+                !indices.isComplete() ||
+                !( PhysicalDeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && PhysicalDeviceFeatures.geometryShader ) ||
+                !dSupportExts ) ) return false;
         if( dSupportExts )
         {
             SwapChainProperties deviceSwapChainProperties{ GetSwapchainProperties( device ) };
@@ -943,9 +945,9 @@ class App
                     attrib.vertices[ vert_i + 1 ],
                     attrib.vertices[ vert_i + 2 ] };
                 mVert.color = {
-                    ( glm::cos( vert_i * 0.324f ) + 1.0f ) * 0.5f,
-                    ( glm::cos( vert_i * 0.513f ) + 1.0f ) * 0.5f,
-                    ( glm::cos( vert_i + 0.762f ) + 1.0f ) * 0.5f,
+                    1.f,
+                    1.f,
+                    !!strcmp( mName, "test" ) ? 1.f : .0f,
                     1.f };
                 mVertecies.push_back( mVert );
                 // if( Indecies.count( mVert ) == 0 )
@@ -954,7 +956,6 @@ class App
                 //     mVertecies.push_back( mVert );
                 // }
             }
-            // -1; 1; 0;; -1; -1; 0;; 1; 1; 0;; 1; -1; 0;; 0 2 1 2 3 1
         }
         mData.ModelVertecies                = mVertecies;
         mData.ModelVerteciesIndices         = mIndecies;
@@ -1000,22 +1001,22 @@ class App
     void CreateVertexBuffer()
     {
         size_t len_vB{ 0 };
-        std::vector<const void *> vBp;
-        std::vector<const VkBufferCopy *> vBpC;
+        std::vector<Vertex> vBp;
+        std::vector<VkBufferCopy> vBpC;
         size_t len_viB{ 0 };
-        std::vector<const void *> viBp;
-        std::vector<const VkBufferCopy *> viBpC;
+        std::vector<uint32_t> viBp;
+        std::vector<VkBufferCopy> viBpC;
         std::string previuseName{};
 
         for( auto &m : Models )
         {
             for( auto i{ 0 }; i < m.second.ModelVertecies.size(); i++ )
             {
-                vBp.push_back( &m.second.ModelVertecies.data()[ i ] );
+                vBp.push_back( m.second.ModelVertecies.data()[ i ] );
             }
             for( auto i{ 0 }; i < m.second.ModelVerteciesIndices.size(); i++ )
             {
-                viBp.push_back( &m.second.ModelVerteciesIndices.data()[ i ] );
+                viBp.push_back( m.second.ModelVerteciesIndices.data()[ i ] );
             }
             len_vB += m.second.VerticesBufferCopy.size;
             len_viB += m.second.VertexIndeciesBufferCopy.size;
@@ -1029,26 +1030,27 @@ class App
                 m.second.VertexIndeciesBufferCopy.dstOffset = m.second.VertexIndeciesBufferCopy.srcOffset = Models[ previuseName ].VertexIndeciesBufferCopy.srcOffset + Models[ previuseName ].VertexIndeciesBufferCopy.size;
             }
             previuseName = m.first;
-            vBpC.push_back( &m.second.VerticesBufferCopy );
-            viBpC.push_back( &m.second.VertexIndeciesBufferCopy );
+            vBpC.push_back( m.second.VerticesBufferCopy );
+            VerteciesOffSets.push_back( m.second.VerticesBufferCopy.dstOffset );
+            viBpC.push_back( m.second.VertexIndeciesBufferCopy );
+            IndeciesOffSets.push_back( m.second.VertexIndeciesBufferCopy.dstOffset );
         }
 
-        void *dataB;
+        void *data;
         // VkDeviceSize bSize{ len_vB };
         CreateBuffer( len_vB, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, TransferVertexBuffer, TransferVertexBufferMemory );
-        vkMapMemory( LogicalDevice, TransferVertexBufferMemory, 0, len_vB, 0, &dataB );
-        memcpy( dataB, *vBp.data(), static_cast<size_t>( len_vB ) );
+        vkMapMemory( LogicalDevice, TransferVertexBufferMemory, 0, len_vB, 0, &data );
+        memcpy( data, vBp.data(), static_cast<size_t>( len_vB ) );
         vkUnmapMemory( LogicalDevice, TransferVertexBufferMemory );
         CreateBuffer( len_vB, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VertexBuffer, VertexBufferMemory );
         TransferDataBetweenBuffers( TransferVertexBuffer, VertexBuffer, vBpC );
         vkDestroyBuffer( LogicalDevice, TransferVertexBuffer, nullptr );
         vkFreeMemory( LogicalDevice, TransferVertexBufferMemory, nullptr );
 
-        void *dataBi;
         CreateBuffer( len_viB, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, TransferVertexBuffer, TransferVertexBufferMemory );
 
-        vkMapMemory( LogicalDevice, TransferVertexBufferMemory, 0, len_viB, 0, &dataBi );
-        memcpy( dataBi, *viBp.data(), len_viB );
+        vkMapMemory( LogicalDevice, TransferVertexBufferMemory, 0, len_viB, 0, &data );
+        memcpy( data, viBp.data(), len_viB );
         vkUnmapMemory( LogicalDevice, TransferVertexBufferMemory );
 
         CreateBuffer( len_viB, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VertexIndecesBuffer, VertexIndecesBufferMemory );
@@ -1080,7 +1082,7 @@ class App
     //     vkFreeMemory( LogicalDevice, TransferVertexBufferMemory, nullptr );
     // }
 
-    void TransferDataBetweenBuffers( VkBuffer bSrc, VkBuffer bDst, std::vector<const VkBufferCopy *> BufferCopyInfo )
+    void TransferDataBetweenBuffers( VkBuffer bSrc, VkBuffer bDst, std::vector<VkBufferCopy> &BufferCopyInfo )
     {
         VkCommandBufferAllocateInfo CommandBufferAllocateInfo{};
         CommandBufferAllocateInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -1097,7 +1099,7 @@ class App
         CommandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         CommandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer( CommandBuffer, &CommandBufferBeginInfo );
-        vkCmdCopyBuffer( CommandBuffer, bSrc, bDst, static_cast<uint32_t>( BufferCopyInfo.size() ), *BufferCopyInfo.data() );
+        vkCmdCopyBuffer( CommandBuffer, bSrc, bDst, static_cast<uint32_t>( BufferCopyInfo.size() ), BufferCopyInfo.data() );
         vkEndCommandBuffer( CommandBuffer );
         VkSubmitInfo SubmitInfo{};
         SubmitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1112,43 +1114,6 @@ class App
         vkQueueWaitIdle( LogicalDeviceGraphickQueue );
         vkFreeCommandBuffers( LogicalDevice, CommandPool, 1, &CommandBuffer );
     }
-
-    // void TransferDataBetweenBuffers( VkBuffer bSrc, VkBuffer bDst, VkDeviceSize size )
-    // {
-    //     VkCommandBufferAllocateInfo CommandBufferAllocateInfo{};
-    //     CommandBufferAllocateInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    //     CommandBufferAllocateInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    //     CommandBufferAllocateInfo.commandPool        = CommandPool;
-    //     CommandBufferAllocateInfo.commandBufferCount = 1;
-    //     VkCommandBuffer CommandBuffer;
-    //     VkResult Result{ vkAllocateCommandBuffers( LogicalDevice, &CommandBufferAllocateInfo, &CommandBuffer ) };
-    //     if( Result != VK_SUCCESS )
-    //     {
-    //         _CriticalThrow( std::format( "Failed to Allocate command buffer, error: {}.", string_VkResult( Result ) ) );
-    //     }
-    //     VkCommandBufferBeginInfo CommandBufferBeginInfo{};
-    //     CommandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    //     CommandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    //     vkBeginCommandBuffer( CommandBuffer, &CommandBufferBeginInfo );
-    //     VkBufferCopy BufferCopy{};
-    //     BufferCopy.dstOffset = 0;
-    //     BufferCopy.srcOffset = 0;
-    //     BufferCopy.size      = size;
-    //     vkCmdCopyBuffer( CommandBuffer, bSrc, bDst, 1, &BufferCopy );
-    //     vkEndCommandBuffer( CommandBuffer );
-    //     VkSubmitInfo SubmitInfo{};
-    //     SubmitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    //     SubmitInfo.commandBufferCount = 1;
-    //     SubmitInfo.pCommandBuffers    = &CommandBuffer;
-
-    //     Result = vkQueueSubmit( LogicalDeviceGraphickQueue, 1, &SubmitInfo, nullptr );
-    //     if( Result != VK_SUCCESS )
-    //     {
-    //         _CriticalThrow( std::format( "Failed to Queue submit, error: {}.", string_VkResult( Result ) ) );
-    //     }
-    //     vkQueueWaitIdle( LogicalDeviceGraphickQueue );
-    //     vkFreeCommandBuffers( LogicalDevice, CommandPool, 1, &CommandBuffer );
-    // }
 
     uint32_t MemoryTypeIndex( uint32_t type, VkMemoryPropertyFlags properties )
     {
@@ -1219,7 +1184,7 @@ class App
         const VkBuffer _VertexBuffers[]{ VertexBuffer };
         const VkDeviceSize _Offsets[]{ 0 };
 
-        vkCmdBindVertexBuffers( CommandBuffers[ imI ], 0, 1, _VertexBuffers, _Offsets );
+        vkCmdBindVertexBuffers( CommandBuffers[ imI ], 0, 1, _VertexBuffers, VerteciesOffSets.data() );
         vkCmdBindIndexBuffer( CommandBuffers[ imI ], VertexIndecesBuffer, 0, VK_INDEX_TYPE_UINT32 );
 
         vkCmdDrawIndexed( commandBuffer, static_cast<uint32_t>( ObjectVerticesIndices.size() ), 1, 0, 0, 0 );
