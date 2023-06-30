@@ -139,6 +139,12 @@ struct Vertex
         return coordinate == other.coordinate && color == other.color;
     }
 };
+struct UniformBufferObject
+{
+    glm::mat4 model;
+    glm::mat4 view;
+    glm::mat4 proj;
+};
 namespace std
 {
 template <>
@@ -154,8 +160,10 @@ struct Model
 {
     std::vector<Vertex> ModelVertecies;
     std::vector<uint32_t> ModelVerteciesIndices;
-    VkBufferCopy VerticesBufferCopy{};
-    VkBufferCopy VertexIndeciesBufferCopy{};
+    // VkBufferCopy VerticesBufferCopy{};
+    // VkBufferCopy VertexIndeciesBufferCopy{};
+    uint32_t VerteciesOffset{};
+    uint32_t IndeciesOffset{};
 };
 // struct AppData
 // {
@@ -184,9 +192,8 @@ class App
     int32_t DISPLAY_HEIGHT;
     std::string TITLE;
 
-    App( uint16_t width, uint16_t height, const char *title, std::vector<std::pair<const char *, const char *>> &PathsToModels ) : WIDTH{ width }, HEIGHT{ height }, TITLE{ title }
+    App( uint16_t width, uint16_t height, const char *title, std::vector<std::pair<const char *, const char *>> &Models ) : WIDTH{ width }, HEIGHT{ height }, TITLE{ title }, PathsToModel{ Models }
     {
-        GetModels( PathsToModels );
         initWindow();
         initVulkan();
         CheckValidationLayers();
@@ -244,6 +251,7 @@ class App
     VkSurfaceKHR Surface;
     const std::vector<const char *> ValidationLayers{ "VK_LAYER_KHRONOS_validation" };
     const std::vector<const char *> RequeredDeviceExts{ VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME };
+    std::vector<std::pair<const char *, const char *>> &PathsToModel;
     VkDevice LogicalDevice;
     VkQueue LogicalDeviceGraphickQueue;
     VkQueue LogicalDevicePresentQueue;
@@ -281,19 +289,6 @@ class App
     VkDebugUtilsMessengerCreateInfoEXT DbgMessengerCreateInfo{};
     std::unordered_map<std::string, Model> Models;
     std::vector<VkDeviceSize> VerteciesOffSets{};
-    std::vector<VkDeviceSize> IndeciesOffSets{};
-    std::vector<Vertex> AllModelsVertecies;
-    std::vector<uint32_t> AllModelsVerteciesIndecies;
-
-    void GetModels( std::vector<std::pair<const char *, const char *>> &PathsToModel )
-    {
-        for( const auto &Path : PathsToModel )
-        {
-            LoadModel( std::format( "../../{}", Path.first ).c_str(), Path.second );
-            // ObjectVertices        = Models[ "plate" ].ModelVertecies;
-            // ObjectVerticesIndices = Models[ "plate" ].ModelVerteciesIndices;
-        }
-    }
 
     void initWindow()
     {
@@ -915,56 +910,51 @@ class App
         }
     }
 
-    void LoadModel( const char *mPath, const char *mName )
-    {
-        tinyobj::attrib_t attrib;
-        std::vector<tinyobj::shape_t> shapes;
-        std::vector<tinyobj::material_t> materials;
-        std::string warn, err;
-        std::vector<Vertex> mVertecies;
-        std::vector<uint32_t> mIndecies;
-        if( !tinyobj::LoadObj( &attrib, &shapes, &materials, &warn, &err, mPath ) )
-        {
-            _CriticalThrow( std::format( "Failed to Load model {}:\nwarning:\t{}\nerror:{}.", mPath, warn, err ) );
-        }
-        if( warn.length() )
-            SPDLOG_WARN( "Warn with load model {}:{}", mPath, warn );
-        if( err.length() )
-            SPDLOG_ERROR( "Error with load model {}:{}", mPath, err );
-        Model mData;
-        std::unordered_map<Vertex, uint32_t> Indecies{};
-        for( const auto &shape : shapes )
-        {
-            for( const auto &index : shape.mesh.indices )
-            {
-                mIndecies.push_back( index.vertex_index );
-            }
-            for( size_t vert_i{ 0 }; vert_i < attrib.vertices.size(); vert_i += 3 )
-            {
-                Vertex mVert{};
-                mVert.coordinate = {
-                    attrib.vertices[ vert_i ],
-                    attrib.vertices[ vert_i + 1 ],
-                    attrib.vertices[ vert_i + 2 ] };
-                mVert.color = {
-                    1.f,
-                    1.f,
-                    !strcmp( mName, "test" ) ? 1.f : .0f,
-                    1.f };
-                mVertecies.push_back( mVert );
-                // if( Indecies.count( mVert ) == 0 )
-                // {
-                //     Indecies[ mVert ] = static_cast<uint32_t>( mVertecies.size() );
-                //     mVertecies.push_back( mVert );
-                // }
-            }
-        }
-        mData.ModelVertecies                = mVertecies;
-        mData.ModelVerteciesIndices         = mIndecies;
-        mData.VerticesBufferCopy.size       = sizeof( Vertex ) * mData.ModelVertecies.size();
-        mData.VertexIndeciesBufferCopy.size = sizeof( uint32_t ) * mData.ModelVertecies.size();
-        Models[ mName ]                     = mData;
-    };
+    // void LoadModel( const char *mPath, const char *mName )
+    // {
+    //     tinyobj::attrib_t attrib;
+    //     std::vector<tinyobj::shape_t> shapes;
+    //     std::vector<tinyobj::material_t> materials;
+    //     std::string warn, err;
+    //     std::vector<Vertex> mVertecies;
+    //     std::vector<uint32_t> mIndecies;
+    //     if( !tinyobj::LoadObj( &attrib, &shapes, &materials, &warn, &err, mPath ) )
+    //     {
+    //         _CriticalThrow( std::format( "Failed to Load model {}:\nwarning:\t{}\nerror:{}.", mPath, warn, err ) );
+    //     }
+    //     if( warn.length() )
+    //         SPDLOG_WARN( "Warn with load model {}:{}", mPath, warn );
+    //     if( err.length() )
+    //         SPDLOG_ERROR( "Error with load model {}:{}", mPath, err );
+    //     Model mData;
+    //     std::unordered_map<Vertex, uint32_t> Indecies{};
+    //     for( const auto &shape : shapes )
+    //     {
+    //         for( const auto &index : shape.mesh.indices )
+    //         {
+    //             mIndecies.push_back( index.vertex_index );
+    //         }
+    //         for( size_t vert_i{ 0 }; vert_i < attrib.vertices.size(); vert_i += 3 )
+    //         {
+    //             Vertex mVert{};
+    //             mVert.coordinate = {
+    //                 attrib.vertices[ vert_i ],
+    //                 attrib.vertices[ vert_i + 1 ],
+    //                 attrib.vertices[ vert_i + 2 ] };
+    //             mVert.color = {
+    //                 1.f,
+    //                 1.f,
+    //                 !strcmp( mName, "test" ) ? 1.f : .0f,
+    //                 1.f };
+    //             mVertecies.push_back( mVert );
+    //         }
+    //     }
+    //     mData.ModelVertecies                = mVertecies;
+    //     mData.ModelVerteciesIndices         = mIndecies;
+    //     mData.VerticesBufferCopy.size       = sizeof( Vertex ) * mData.ModelVertecies.size();
+    //     mData.VertexIndeciesBufferCopy.size = sizeof( uint32_t ) * mData.ModelVerteciesIndices.size();
+    //     Models[ mName ]                     = mData;
+    // };
 
     void CreateBuffer( VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer &Buffer, VkDeviceMemory &BufferMemory )
     {
@@ -1003,46 +993,104 @@ class App
     void CreateVertexBuffer()
     {
         size_t len_vB{ 0 };
-        // std::vector<Vertex> vBp;
+        std::vector<Vertex> vBp;
         std::vector<VkBufferCopy> vBpC;
         size_t len_viB{ 0 };
-        // std::vector<uint32_t> viBp;
+        std::vector<uint32_t> viBp;
         std::vector<VkBufferCopy> viBpC;
-        std::string previuseName{};
-
-        for( auto &m : Models )
+        for( auto Path{ PathsToModel.begin() }; Path != PathsToModel.end(); Path++ )
         {
-            for( auto i{ 0 }; i < m.second.ModelVertecies.size(); i++ )
+            tinyobj::attrib_t attrib;
+            std::vector<tinyobj::shape_t> shapes;
+            std::vector<tinyobj::material_t> materials;
+            std::string warn, err;
+            std::vector<Vertex> mVertecies;
+            std::vector<uint32_t> mIndecies;
+            VkBufferCopy sVerteciesCopy{};
+            VkBufferCopy sIndeciesCopy{};
+            if( !tinyobj::LoadObj( &attrib, &shapes, &materials, &warn, &err, std::format( "../../{}", Path->first ).c_str() ) )
             {
-                AllModelsVertecies.push_back( m.second.ModelVertecies.data()[ i ] );
+                _CriticalThrow( std::format( "Failed to Load model {}:\nwarning:\t{}\nerror:{}.", std::format( "../../{}", Path->first ).c_str(), warn, err ) );
             }
-            for( auto i{ 0 }; i < m.second.ModelVerteciesIndices.size(); i++ )
+            if( warn.length() )
+                SPDLOG_WARN( "Warn with load model {}:{}", Path->first, warn );
+            if( err.length() )
+                SPDLOG_ERROR( "Error with load model {}:{}", Path->first, err );
+            Model mData;
+            std::unordered_map<Vertex, uint32_t> Indecies{};
+            if( !Models.empty() ) mData.VerteciesOffset = Models[ ( Path - 1 )->second ].VerteciesOffset + static_cast<uint32_t>( Models[ ( Path - 1 )->second ].ModelVertecies.size() );
+            for( const auto &shape : shapes )
             {
-                AllModelsVerteciesIndecies.push_back( m.second.ModelVerteciesIndices.data()[ i ] );
+                for( const auto &index : shape.mesh.indices )
+                {
+                    mIndecies.push_back( index.vertex_index + mData.VerteciesOffset );
+                    viBp.push_back( index.vertex_index + mData.VerteciesOffset );
+                }
+                for( size_t vert_i{ 0 }; vert_i < attrib.vertices.size(); vert_i += 3 )
+                {
+                    Vertex mVert{};
+                    mVert.coordinate = {
+                        attrib.vertices[ vert_i ],
+                        attrib.vertices[ vert_i + 1 ],
+                        attrib.vertices[ vert_i + 2 ] };
+                    mVert.color = {
+                        1.f,
+                        1.f,
+                        !strcmp( Path->second, "test" ) ? 1.f : .0f,
+                        1.f };
+                    mVertecies.push_back( mVert );
+                    vBp.push_back( mVert );
+                }
             }
-            len_vB += m.second.VerticesBufferCopy.size;
-            len_viB += m.second.VertexIndeciesBufferCopy.size;
-            if( previuseName.empty() )
+            mData.ModelVertecies          = mVertecies;
+            mData.ModelVerteciesIndices   = mIndecies;
+            len_vB += sVerteciesCopy.size = sizeof( Vertex ) * mData.ModelVertecies.size();
+            len_viB += sIndeciesCopy.size = sizeof( uint32_t ) * mData.ModelVerteciesIndices.size();
+            if( !Models.empty() )
             {
-                // m.second.VertexIndeciesBufferCopy.dstOffset = m.second.VertexIndeciesBufferCopy.srcOffset = 0;
+                sVerteciesCopy.dstOffset = sVerteciesCopy.srcOffset = vBpC.back().size + vBpC.back().srcOffset;
+                sIndeciesCopy.dstOffset = sIndeciesCopy.srcOffset = viBpC.back().size + viBpC.back().srcOffset;
+                mData.IndeciesOffset                              = Models[ ( Path - 1 )->second ].IndeciesOffset + static_cast<uint32_t>( Models[ ( Path - 1 )->second ].ModelVerteciesIndices.size() );
             }
-            else
-            {
-                m.second.VerticesBufferCopy.dstOffset = m.second.VerticesBufferCopy.srcOffset = Models[ previuseName ].VerticesBufferCopy.srcOffset + Models[ previuseName ].VerticesBufferCopy.size;
-                m.second.VertexIndeciesBufferCopy.dstOffset = m.second.VertexIndeciesBufferCopy.srcOffset = Models[ previuseName ].VertexIndeciesBufferCopy.srcOffset + Models[ previuseName ].VertexIndeciesBufferCopy.size;
-            }
-            previuseName = m.first;
-            vBpC.push_back( m.second.VerticesBufferCopy );
-            VerteciesOffSets.push_back( m.second.VerticesBufferCopy.dstOffset );
-            viBpC.push_back( m.second.VertexIndeciesBufferCopy );
-            IndeciesOffSets.push_back( m.second.VertexIndeciesBufferCopy.dstOffset );
+            vBpC.push_back( sVerteciesCopy );
+            VerteciesOffSets.push_back( sVerteciesCopy.dstOffset );
+            viBpC.push_back( sIndeciesCopy );
+            Models[ Path->second ] = mData;
+            // LoadModel( std::format( "../../{}", Path.first ).c_str(), Path.second );
+            // ObjectVertices        = Models[ "plate" ].ModelVertecies;
+            // ObjectVerticesIndices = Models[ "plate" ].ModelVerteciesIndices;
         }
+        // std::string previuseName{};
+
+        // for( auto &m : Models )
+        // {
+        // for( auto i{ 0 }; i < m.second.ModelVertecies.size(); i++ )
+        // {
+        //     AllModelsVertecies.push_back( m.second.ModelVertecies.data()[ i ] );
+        // }
+        // for( auto i{ 0 }; i < m.second.ModelVerteciesIndices.size(); i++ )
+        // {
+        //     AllModelsVerteciesIndecies.push_back( m.second.ModelVerteciesIndices.data()[ i ] );
+        // }
+        // len_vB += m.second.VerticesBufferCopy.size;
+        // len_viB += m.second.VertexIndeciesBufferCopy.size;
+        // if( !previuseName.empty() )
+        // {
+        //     m.second.VerticesBufferCopy.dstOffset = m.second.VerticesBufferCopy.srcOffset = Models[ previuseName ].VerticesBufferCopy.srcOffset + Models[ previuseName ].VerticesBufferCopy.size;
+        //     m.second.VertexIndeciesBufferCopy.dstOffset = m.second.VertexIndeciesBufferCopy.srcOffset = Models[ previuseName ].VertexIndeciesBufferCopy.srcOffset + Models[ previuseName ].VertexIndeciesBufferCopy.size;
+        // }
+        // previuseName = m.first;
+        // vBpC.push_back( m.second.VerticesBufferCopy );
+        // VerteciesOffSets.push_back( m.second.VerticesBufferCopy.dstOffset );
+        // viBpC.push_back( m.second.VertexIndeciesBufferCopy );
+        // IndeciesOffSets.push_back( m.second.VertexIndeciesBufferCopy.dstOffset );
+        // }
 
         void *data;
         // VkDeviceSize bSize{ len_vB };
         CreateBuffer( len_vB, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, TransferVertexBuffer, TransferVertexBufferMemory );
         vkMapMemory( LogicalDevice, TransferVertexBufferMemory, 0, len_vB, 0, &data );
-        memcpy( data, AllModelsVertecies.data(), static_cast<size_t>( len_vB ) );
+        memcpy( data, vBp.data(), static_cast<size_t>( len_vB ) );
         vkUnmapMemory( LogicalDevice, TransferVertexBufferMemory );
         CreateBuffer( len_vB, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VertexBuffer, VertexBufferMemory );
         TransferDataBetweenBuffers( TransferVertexBuffer, VertexBuffer, vBpC );
@@ -1052,7 +1100,7 @@ class App
         CreateBuffer( len_viB, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, TransferVertexBuffer, TransferVertexBufferMemory );
 
         vkMapMemory( LogicalDevice, TransferVertexBufferMemory, 0, len_viB, 0, &data );
-        memcpy( data, AllModelsVerteciesIndecies.data(), len_viB );
+        memcpy( data, viBp.data(), len_viB );
         vkUnmapMemory( LogicalDevice, TransferVertexBufferMemory );
 
         CreateBuffer( len_viB, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VertexIndecesBuffer, VertexIndecesBufferMemory );
@@ -1062,27 +1110,6 @@ class App
         vkDestroyBuffer( LogicalDevice, TransferVertexBuffer, nullptr );
         vkFreeMemory( LogicalDevice, TransferVertexBufferMemory, nullptr );
     }
-
-    // void CreateIndeciesBuffer()
-    // {
-    //     VkDeviceSize bSize = sizeof( ObjectVerticesIndices[ 0 ] ) * ObjectVerticesIndices.size();
-
-    //     // VkBuffer stagingBuffer;
-    //     // VkDeviceMemory stagingBufferMemory;
-    //     CreateBuffer( bSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, TransferVertexBuffer, TransferVertexBufferMemory );
-
-    //     void *data;
-    //     vkMapMemory( LogicalDevice, TransferVertexBufferMemory, 0, bSize, 0, &data );
-    //     memcpy( data, ObjectVerticesIndices.data(), ( size_t )bSize );
-    //     vkUnmapMemory( LogicalDevice, TransferVertexBufferMemory );
-
-    //     CreateBuffer( bSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VertexIndecesBuffer, VertexIndecesBufferMemory );
-
-    //     TransferDataBetweenBuffers( TransferVertexBuffer, VertexIndecesBuffer, bSize );
-
-    //     vkDestroyBuffer( LogicalDevice, TransferVertexBuffer, nullptr );
-    //     vkFreeMemory( LogicalDevice, TransferVertexBufferMemory, nullptr );
-    // }
 
     void TransferDataBetweenBuffers( VkBuffer bSrc, VkBuffer bDst, std::vector<VkBufferCopy> &BufferCopyInfo )
     {
@@ -1188,9 +1215,12 @@ class App
 
         vkCmdBindVertexBuffers( CommandBuffers[ imI ], 0, 1, _VertexBuffers, VerteciesOffSets.data() );
         vkCmdBindIndexBuffer( CommandBuffers[ imI ], VertexIndecesBuffer, 0, VK_INDEX_TYPE_UINT32 );
+        for( const auto &m : Models )
+        {
+            vkCmdDrawIndexed( commandBuffer, static_cast<uint32_t>( m.second.ModelVerteciesIndices.size() ), 1, m.second.IndeciesOffset, 0, 0 );
+        }
 
-        vkCmdDrawIndexed( commandBuffer, 6, 2, 0, 0, 0 );
-        // vkCmdDrawIndexed( commandBuffer, 6, 1, 0, 4, 0 );
+        // vkCmdDrawIndexed( commandBuffer, 6, 1, 6, 0, 0 );
         vkCmdEndRenderPass( commandBuffer );
 
         Result = vkEndCommandBuffer( commandBuffer );

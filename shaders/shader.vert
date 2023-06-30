@@ -8,7 +8,7 @@ layout( location = 0 ) out vec4 fragColor;
 
 void main()
 {
-    debugPrintfEXT( "Color is %f" );
+    // debugPrintfEXT( "Color is %f" );
     gl_Position   = vec4( inputPos, 1.0 );
     gl_Position.y = -gl_Position.y;
     fragColor     = inputColor;
