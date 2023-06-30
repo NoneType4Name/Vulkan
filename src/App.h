@@ -162,14 +162,14 @@ struct Model
 //     const Model *Models;
 // };
 
-static std::vector<Vertex> ObjectVertices{
-    { { -.5f, -.5f, .0f }, { 1.f, .0f, .0f, 1.f } },
-    // { { .0f, -0.5f, .0f }, { 1.f, .0f, .0f, 1.f } },
-    { { .5f, -.5f, .0f }, { .0f, 1.f, .0f, 1.f } },
-    { { .5f, .5f, .0f }, { .0f, 1.f, .0f, 1.f } },
-    { { -.5f, .5f, .0f }, { .0f, 0.f, 1.f, 1.f } } };
-static std::vector<uint32_t> ObjectVerticesIndices = {
-    0, 1, 2, 2, 0, 3 };
+// static std::vector<Vertex> ObjectVertices{
+//     { { -.5f, -.5f, .0f }, { 1.f, .0f, .0f, 1.f } },
+//     // { { .0f, -0.5f, .0f }, { 1.f, .0f, .0f, 1.f } },
+//     { { .5f, -.5f, .0f }, { .0f, 1.f, .0f, 1.f } },
+//     { { .5f, .5f, .0f }, { .0f, 1.f, .0f, 1.f } },
+//     { { -.5f, .5f, .0f }, { .0f, 0.f, 1.f, 1.f } } };
+// static std::vector<uint32_t> ObjectVerticesIndices = {
+//     0, 1, 2, 2, 0, 3 };
 
 static void FramebufferResizeCallback( GLFWwindow *, int, int );
 static void WindwoResizeCallback( GLFWwindow *, int, int );
@@ -282,14 +282,16 @@ class App
     std::unordered_map<std::string, Model> Models;
     std::vector<VkDeviceSize> VerteciesOffSets{};
     std::vector<VkDeviceSize> IndeciesOffSets{};
+    std::vector<Vertex> AllModelsVertecies;
+    std::vector<uint32_t> AllModelsVerteciesIndecies;
 
     void GetModels( std::vector<std::pair<const char *, const char *>> &PathsToModel )
     {
         for( const auto &Path : PathsToModel )
         {
             LoadModel( std::format( "../../{}", Path.first ).c_str(), Path.second );
-            ObjectVertices        = Models[ "plate" ].ModelVertecies;
-            ObjectVerticesIndices = Models[ "plate" ].ModelVerteciesIndices;
+            // ObjectVertices        = Models[ "plate" ].ModelVertecies;
+            // ObjectVerticesIndices = Models[ "plate" ].ModelVerteciesIndices;
         }
     }
 
@@ -947,7 +949,7 @@ class App
                 mVert.color = {
                     1.f,
                     1.f,
-                    !!strcmp( mName, "test" ) ? 1.f : .0f,
+                    !strcmp( mName, "test" ) ? 1.f : .0f,
                     1.f };
                 mVertecies.push_back( mVert );
                 // if( Indecies.count( mVert ) == 0 )
@@ -1001,10 +1003,10 @@ class App
     void CreateVertexBuffer()
     {
         size_t len_vB{ 0 };
-        std::vector<Vertex> vBp;
+        // std::vector<Vertex> vBp;
         std::vector<VkBufferCopy> vBpC;
         size_t len_viB{ 0 };
-        std::vector<uint32_t> viBp;
+        // std::vector<uint32_t> viBp;
         std::vector<VkBufferCopy> viBpC;
         std::string previuseName{};
 
@@ -1012,11 +1014,11 @@ class App
         {
             for( auto i{ 0 }; i < m.second.ModelVertecies.size(); i++ )
             {
-                vBp.push_back( m.second.ModelVertecies.data()[ i ] );
+                AllModelsVertecies.push_back( m.second.ModelVertecies.data()[ i ] );
             }
             for( auto i{ 0 }; i < m.second.ModelVerteciesIndices.size(); i++ )
             {
-                viBp.push_back( m.second.ModelVerteciesIndices.data()[ i ] );
+                AllModelsVerteciesIndecies.push_back( m.second.ModelVerteciesIndices.data()[ i ] );
             }
             len_vB += m.second.VerticesBufferCopy.size;
             len_viB += m.second.VertexIndeciesBufferCopy.size;
@@ -1040,7 +1042,7 @@ class App
         // VkDeviceSize bSize{ len_vB };
         CreateBuffer( len_vB, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, TransferVertexBuffer, TransferVertexBufferMemory );
         vkMapMemory( LogicalDevice, TransferVertexBufferMemory, 0, len_vB, 0, &data );
-        memcpy( data, vBp.data(), static_cast<size_t>( len_vB ) );
+        memcpy( data, AllModelsVertecies.data(), static_cast<size_t>( len_vB ) );
         vkUnmapMemory( LogicalDevice, TransferVertexBufferMemory );
         CreateBuffer( len_vB, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VertexBuffer, VertexBufferMemory );
         TransferDataBetweenBuffers( TransferVertexBuffer, VertexBuffer, vBpC );
@@ -1050,7 +1052,7 @@ class App
         CreateBuffer( len_viB, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, TransferVertexBuffer, TransferVertexBufferMemory );
 
         vkMapMemory( LogicalDevice, TransferVertexBufferMemory, 0, len_viB, 0, &data );
-        memcpy( data, viBp.data(), len_viB );
+        memcpy( data, AllModelsVerteciesIndecies.data(), len_viB );
         vkUnmapMemory( LogicalDevice, TransferVertexBufferMemory );
 
         CreateBuffer( len_viB, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VertexIndecesBuffer, VertexIndecesBufferMemory );
@@ -1187,7 +1189,8 @@ class App
         vkCmdBindVertexBuffers( CommandBuffers[ imI ], 0, 1, _VertexBuffers, VerteciesOffSets.data() );
         vkCmdBindIndexBuffer( CommandBuffers[ imI ], VertexIndecesBuffer, 0, VK_INDEX_TYPE_UINT32 );
 
-        vkCmdDrawIndexed( commandBuffer, static_cast<uint32_t>( ObjectVerticesIndices.size() ), 1, 0, 0, 0 );
+        vkCmdDrawIndexed( commandBuffer, 6, 2, 0, 0, 0 );
+        // vkCmdDrawIndexed( commandBuffer, 6, 1, 0, 4, 0 );
         vkCmdEndRenderPass( commandBuffer );
 
         Result = vkEndCommandBuffer( commandBuffer );
