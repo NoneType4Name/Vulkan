@@ -1,25 +1,11 @@
 #include "App.h"
 
-// const Model Triangle{
-//     { { -.5f, -.5f, .0f }, { 1.f, .0f, .0f, 1.f } },
-//     // { { .0f, -0.5f, .0f }, { 1.f, .0f, .0f, 1.f } },
-//     { { .5f, -.5f, .0f }, { .0f, 1.f, .0f, 1.f } },
-//     { { .5f, .5f, .0f }, { .0f, 1.f, .0f, 1.f } },
-//     { { -.5f, .5f, .0f }, { .0f, 0.f, 1.f, 1.f } } },
-//     { 0, 1, 2, 2, 3, 1 };
-
-// static const Model Models{};
-
 int main( int argc, char *argv[] )
 {
-    // AppData Data{};
-    // Data.Models = &Models;
     std::vector<std::pair<const char *, const char *>> ModelsPaths{
-        { "models/plate.obj", "plate" },
         { "models/test.obj", "test" } };
     try
     {
-        // App app{ 0, 0, "HV", &Data };
         App app{ 0, 0, "HV", ModelsPaths };
     }
     catch( const std::exception &e )
