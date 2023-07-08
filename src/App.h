@@ -13,9 +13,12 @@
 
 #ifdef _DEBUG
 #    define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#    define PATH_PREFIX         "../"
 const bool APP_DEBUG = true;
 #else
 #    define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_CRITICAL
+#    define PATH_PREFIX         "./"
+
 const bool APP_DEBUG = false;
 
 #endif
@@ -193,6 +196,10 @@ class App
         DestroySwapchain();
         vkDestroyDescriptorPool( LogicalDevice, DescriptorPool, nullptr );
         vkDestroyDescriptorSetLayout( LogicalDevice, DescriptorSetLayout, nullptr );
+        vkDestroySampler( LogicalDevice, TextureSampler, nullptr );
+        vkDestroyImageView( LogicalDevice, TextureImageView, nullptr );
+        vkDestroyImage( LogicalDevice, TextureImage, nullptr );
+        vkFreeMemory( LogicalDevice, TextureImageMemory, nullptr );
         vkDestroyBuffer( LogicalDevice, VertexBuffer, nullptr );
         vkFreeMemory( LogicalDevice, VertexBufferMemory, nullptr );
         vkDestroyBuffer( LogicalDevice, VertexIndecesBuffer, nullptr );
@@ -257,6 +264,7 @@ class App
     VkPhysicalDeviceProperties PhysicalDeviceProperties;
     VkPhysicalDeviceFeatures PhysicalDeviceFeatures;
     QueueFamilyIndices PhysicalDeviceIndices;
+    VkPhysicalDeviceFeatures LogicalDeviceFeatures{};
     VkSwapchainKHR SwapChain;
     VkFormat SwapchainFormat;
     VkPresentModeKHR SwapchainPresentMode;
@@ -269,8 +277,10 @@ class App
     VkDeviceMemory VertexBufferMemory;
     VkBuffer VertexIndecesBuffer;
     VkDeviceMemory VertexIndecesBufferMemory;
-    VkBuffer TransferVertexBuffer;
-    VkDeviceMemory TransferVertexBufferMemory;
+    VkImage TextureImage;
+    VkDeviceMemory TextureImageMemory; // TODO: vector off this and previous line
+    VkImageView TextureImageView;      // TODO: texture struct
+    VkSampler TextureSampler;
     std::vector<VkBuffer> UniformBuffers{};
     std::vector<VkDeviceMemory> UniformBuffersMemory{};
     VkDescriptorPool DescriptorPool;
@@ -342,6 +352,8 @@ class App
         CreateFrameBuffers();
         CreateCommandPool();
         CreateTextureImage();
+        CreateTextureImageView();
+        CreateTextureSempler();
         CreateVertexBuffer();
         CreateUniformBuffers();
         CreateDescriptorsPool();
@@ -502,7 +514,7 @@ class App
         bool dSupportExts{ isDeviceSupportExtensions( device ) };
         if( (
                 !indices.isComplete() ||
-                !( PhysicalDeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && PhysicalDeviceFeatures.geometryShader ) ||
+                !( PhysicalDeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && PhysicalDeviceFeatures.geometryShader && PhysicalDeviceFeatures.samplerAnisotropy ) ||
                 !dSupportExts ) ) return false;
         if( dSupportExts )
         {
@@ -565,12 +577,13 @@ class App
             queueCreateInfo.pQueuePriorities = &QueueFamily.second;
             queueCreateInfos.push_back( queueCreateInfo );
         }
-        VkPhysicalDeviceFeatures deviceFeatures{};
+        LogicalDeviceFeatures.samplerAnisotropy = VK_TRUE;
         VkDeviceCreateInfo createInfo{};
-        createInfo.sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-        createInfo.queueCreateInfoCount    = static_cast<uint32_t>( queueCreateInfos.size() );
-        createInfo.pQueueCreateInfos       = queueCreateInfos.data();
-        createInfo.pEnabledFeatures        = &deviceFeatures;
+        createInfo.sType                = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        createInfo.queueCreateInfoCount = static_cast<uint32_t>( queueCreateInfos.size() );
+        createInfo.pQueueCreateInfos    = queueCreateInfos.data();
+        createInfo.pEnabledFeatures     = &LogicalDeviceFeatures;
+        // createInfo.pEnabledFeatures        = &PhysicalDeviceFeatures;
         createInfo.enabledExtensionCount   = static_cast<uint32_t>( RequeredDeviceExts.size() );
         createInfo.ppEnabledExtensionNames = RequeredDeviceExts.data();
         if( APP_DEBUG )
@@ -936,21 +949,55 @@ class App
         }
     }
 
-    void CreateBuffer( VkDeviceSize size, VkBufferUsageFlags bUsage, VkMemoryPropertyFlags mProperties, VkBuffer &Buffer, VkDeviceMemory &mBuffer )
+    VkCommandBuffer BeginSingleTimeCommand()
     {
-        VkBufferCreateInfo BufferCreateInfo{};
+        VkCommandBuffer commandBuffer;
+        VkCommandBufferAllocateInfo CommandBufferAllocateInfo{};
+        CommandBufferAllocateInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        CommandBufferAllocateInfo.commandPool        = CommandPool;
+        CommandBufferAllocateInfo.commandBufferCount = 1;
+        CommandBufferAllocateInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        VkResult Result{ vkAllocateCommandBuffers( LogicalDevice, &CommandBufferAllocateInfo, &commandBuffer ) };
+        if( Result != VK_SUCCESS )
+        {
+            _CriticalThrow( std::format( "Failed to Allocate Single Time Command Buffer, error: {}.", string_VkResult( Result ) ) );
+        }
+        VkCommandBufferBeginInfo CommandBufferBeginInfo{};
+        CommandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        CommandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer( commandBuffer, &CommandBufferBeginInfo );
+        return commandBuffer;
+    }
+
+    void EndSingleTimeCommand( VkCommandBuffer commandBuffer )
+    {
+        vkEndCommandBuffer( commandBuffer );
+        VkSubmitInfo SubmitInfo{};
+        SubmitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        SubmitInfo.commandBufferCount = 1;
+        SubmitInfo.pCommandBuffers    = &commandBuffer;
+        VkResult Result{ vkQueueSubmit( LogicalDeviceGraphickQueue, 1, &SubmitInfo, nullptr ) };
+        if( Result != VK_SUCCESS )
+        {
+            _CriticalThrow( std::format( "Failed to Queue Submit, error: {}.", string_VkResult( Result ) ) );
+        }
+        vkQueueWaitIdle( LogicalDeviceGraphickQueue );
+        vkFreeCommandBuffers( LogicalDevice, CommandPool, 1, &commandBuffer );
+    }
+
+    void CreateBuffer( VkDeviceSize size, VkBufferUsageFlags bUsage, VkMemoryPropertyFlags mProperties, VkBufferCreateInfo BufferCreateInfo, VkBuffer &Buffer, VkDeviceMemory &mBuffer, VkDeviceSize MemoryOffset )
+    {
         BufferCreateInfo.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         BufferCreateInfo.size        = size;
         BufferCreateInfo.usage       = bUsage;
-        BufferCreateInfo.flags       = 0;
-        BufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        BufferCreateInfo.flags       = BufferCreateInfo.flags ? BufferCreateInfo.flags : 0;
+        BufferCreateInfo.sharingMode = BufferCreateInfo.sharingMode ? BufferCreateInfo.sharingMode : VK_SHARING_MODE_EXCLUSIVE;
 
         VkResult Result{ vkCreateBuffer( LogicalDevice, &BufferCreateInfo, nullptr, &Buffer ) };
         if( Result != VK_SUCCESS )
         {
-            _CriticalThrow( std::format( "Failed to create Vertex buffer, error: {}.", string_VkResult( Result ) ) );
+            _CriticalThrow( std::format( "Failed to Create Buffer, error: {}.", string_VkResult( Result ) ) );
         }
-
         VkMemoryRequirements Requirements;
         vkGetBufferMemoryRequirements( LogicalDevice, Buffer, &Requirements );
         VkMemoryAllocateInfo MemoryAllocateInfo{};
@@ -961,17 +1008,190 @@ class App
         Result = vkAllocateMemory( LogicalDevice, &MemoryAllocateInfo, nullptr, &mBuffer );
         if( Result != VK_SUCCESS )
         {
-            _CriticalThrow( std::format( "Failed to allocate Vertex buffer memory, error: {}.", string_VkResult( Result ) ) );
+            _CriticalThrow( std::format( "Failed to Allocate Buffer Memory, error: {}.", string_VkResult( Result ) ) );
         }
-        Result = vkBindBufferMemory( LogicalDevice, Buffer, mBuffer, 0 );
+        Result = vkBindBufferMemory( LogicalDevice, Buffer, mBuffer, MemoryOffset );
         if( Result != VK_SUCCESS )
         {
-            _CriticalThrow( std::format( "Failed to Bind Vertex buffer to Vertex buffer memory, error: {}.", string_VkResult( Result ) ) );
+            _CriticalThrow( std::format( "Failed to Bind Buffer to Buffer Memory, error: {}.", string_VkResult( Result ) ) );
         }
     }
 
-    void CreateTextureImage()
+    void CreateImage( const VkDeviceSize size, const uint32_t width, const uint32_t height, const VkBufferUsageFlags iUsage, const VkMemoryPropertyFlags mProperties, VkImageCreateInfo ImageCreateInfo, VkImage &Image, VkDeviceMemory &mImage, VkDeviceSize MemoryOffset )
     {
+        ImageCreateInfo.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        ImageCreateInfo.imageType     = VK_IMAGE_TYPE_2D;
+        ImageCreateInfo.extent.width  = width;
+        ImageCreateInfo.extent.height = height;
+        ImageCreateInfo.extent.depth  = ImageCreateInfo.extent.depth ? ImageCreateInfo.extent.depth : 1;
+        ImageCreateInfo.mipLevels     = ImageCreateInfo.mipLevels ? ImageCreateInfo.mipLevels : 1;
+        ImageCreateInfo.arrayLayers   = ImageCreateInfo.arrayLayers ? ImageCreateInfo.arrayLayers : 1;
+        ImageCreateInfo.format        = ImageCreateInfo.format ? ImageCreateInfo.format : VK_FORMAT_R8G8B8A8_SRGB;
+        ImageCreateInfo.tiling        = ImageCreateInfo.tiling ? ImageCreateInfo.tiling : VK_IMAGE_TILING_OPTIMAL;
+        ImageCreateInfo.initialLayout = ImageCreateInfo.initialLayout ? ImageCreateInfo.initialLayout : VK_IMAGE_LAYOUT_UNDEFINED;
+        ImageCreateInfo.usage         = iUsage;
+        ImageCreateInfo.sharingMode   = ImageCreateInfo.sharingMode ? ImageCreateInfo.sharingMode : VK_SHARING_MODE_EXCLUSIVE;
+        ImageCreateInfo.samples       = ImageCreateInfo.samples ? ImageCreateInfo.samples : VK_SAMPLE_COUNT_1_BIT;
+
+        VkResult Result{ vkCreateImage( LogicalDevice, &ImageCreateInfo, nullptr, &Image ) };
+        if( Result != VK_SUCCESS )
+        {
+            _CriticalThrow( std::format( "Failed to Create Image, error {}.", string_VkResult( Result ) ) );
+        }
+
+        VkMemoryRequirements MemoryRequirements{};
+        vkGetImageMemoryRequirements( LogicalDevice, Image, &MemoryRequirements );
+
+        VkMemoryAllocateInfo MemoryAllocateInfo{};
+        MemoryAllocateInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        MemoryAllocateInfo.allocationSize  = MemoryRequirements.size;
+        MemoryAllocateInfo.memoryTypeIndex = MemoryTypeIndex( MemoryRequirements.memoryTypeBits, mProperties );
+
+        Result = vkAllocateMemory( LogicalDevice, &MemoryAllocateInfo, nullptr, &mImage );
+        if( Result != VK_SUCCESS )
+        {
+            _CriticalThrow( std::format( "Failed to Allocate Image Memory, error: {}", string_VkResult( Result ) ) );
+        }
+        Result = vkBindImageMemory( LogicalDevice, Image, mImage, MemoryOffset );
+        if( Result != VK_SUCCESS )
+        {
+            _CriticalThrow( std::format( "Failed to Bind Image to Image Memory, error: {}", string_VkResult( Result ) ) );
+        }
+    }
+
+    void CreateTextureImage() // TODO: as normal class metod.
+    {
+        const char *path{ "textures/img.png" };
+        int imgW, imgH, imgCs;
+        stbi_uc *content{ stbi_load( std::format( "{}../{}", PATH_PREFIX, path ).c_str(), &imgW, &imgH, &imgCs, STBI_rgb_alpha ) };
+        if( !content )
+        {
+            _CriticalThrow( std::format( "Failed to load texture [{}]", path ) );
+        }
+        VkDeviceSize Size = imgW * imgH * imgCs;
+        VkBuffer TransferBuffer;
+        VkDeviceMemory TransferBufferMemory;
+        CreateBuffer( Size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, {}, TransferBuffer, TransferBufferMemory, 0 );
+        void *data;
+        vkMapMemory( LogicalDevice, TransferBufferMemory, 0, Size, 0, &data );
+        memcpy( data, content, static_cast<size_t>( Size ) );
+        vkUnmapMemory( LogicalDevice, TransferBufferMemory );
+        stbi_image_free( content );
+
+        CreateImage( Size, imgW, imgH, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, {}, TextureImage, TextureImageMemory, 0 );
+        ImageTransition( TextureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
+
+        std::vector<VkBufferImageCopy> BufferImageCopy{ {} };
+        BufferImageCopy[ 0 ].bufferImageHeight = 0;
+        BufferImageCopy[ 0 ].bufferOffset      = 0;
+        BufferImageCopy[ 0 ].bufferRowLength   = 0;
+
+        BufferImageCopy[ 0 ].imageExtent.width  = imgW;
+        BufferImageCopy[ 0 ].imageExtent.height = imgH;
+        BufferImageCopy[ 0 ].imageExtent.depth  = 1;
+        BufferImageCopy[ 0 ].imageOffset        = { 0, 0, 0 };
+
+        BufferImageCopy[ 0 ].imageSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+        BufferImageCopy[ 0 ].imageSubresource.layerCount     = 1;
+        BufferImageCopy[ 0 ].imageSubresource.baseArrayLayer = 0;
+        BufferImageCopy[ 0 ].imageSubresource.mipLevel       = 0;
+
+        TransferBufferToImage( TransferBuffer, TextureImage, BufferImageCopy );
+        ImageTransition( TextureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL );
+        vkDestroyBuffer( LogicalDevice, TransferBuffer, nullptr );
+        vkFreeMemory( LogicalDevice, TransferBufferMemory, nullptr );
+    }
+
+    void CreateTextureImageView()
+    {
+        VkImageViewCreateInfo ImageViewCreateInfo{};
+        ImageViewCreateInfo.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        ImageViewCreateInfo.image                           = TextureImage;
+        ImageViewCreateInfo.viewType                        = VK_IMAGE_VIEW_TYPE_2D;
+        ImageViewCreateInfo.format                          = VK_FORMAT_R8G8B8A8_SRGB;
+        ImageViewCreateInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+        ImageViewCreateInfo.subresourceRange.baseMipLevel   = 0;
+        ImageViewCreateInfo.subresourceRange.levelCount     = 1;
+        ImageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
+        ImageViewCreateInfo.subresourceRange.layerCount     = 1;
+
+        VkResult Result{ vkCreateImageView( LogicalDevice, &ImageViewCreateInfo, nullptr, &TextureImageView ) };
+        if( Result != VK_SUCCESS )
+        {
+            _CriticalThrow( std::format( "Failed to Create Texture Image View, error: {}.", string_VkResult( Result ) ) );
+        }
+    }
+
+    void CreateTextureSempler()
+    {
+        VkSamplerCreateInfo SamplerCreateInfo{};
+        SamplerCreateInfo.sType     = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        SamplerCreateInfo.magFilter = VK_FILTER_LINEAR;
+        SamplerCreateInfo.minFilter = VK_FILTER_LINEAR;
+
+        SamplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+        SamplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+        SamplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+
+        SamplerCreateInfo.anisotropyEnable = VK_TRUE;
+        SamplerCreateInfo.maxAnisotropy    = PhysicalDeviceProperties.limits.maxSamplerAnisotropy; // User setting
+        SamplerCreateInfo.borderColor      = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+
+        SamplerCreateInfo.compareEnable = VK_FALSE;
+        SamplerCreateInfo.compareOp     = VK_COMPARE_OP_ALWAYS;
+
+        // mipmap wait
+        SamplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        SamplerCreateInfo.mipLodBias = 0.0f;
+        SamplerCreateInfo.minLod     = 0.0f;
+        SamplerCreateInfo.maxLod     = 0.0f;
+
+        VkResult Result{ vkCreateSampler( LogicalDevice, &SamplerCreateInfo, nullptr, &TextureSampler ) };
+        if( Result != VK_SUCCESS )
+        {
+            _CriticalThrow( std::format( "Failed to Create Texture Sampler, error: {}.", string_VkResult( Result ) ) );
+        }
+    }
+
+    void ImageTransition( VkImage image, VkFormat format, VkImageLayout layout, VkImageLayout NewLayout )
+    {
+        VkPipelineStageFlags srcStageMask{ 0 };
+        VkPipelineStageFlags dstStageMask{ 0 };
+        VkImageMemoryBarrier ImageMemoryBarrier{};
+        ImageMemoryBarrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        ImageMemoryBarrier.image               = image;
+        ImageMemoryBarrier.oldLayout           = layout;
+        ImageMemoryBarrier.newLayout           = NewLayout;
+        ImageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        ImageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        if( layout == VK_IMAGE_LAYOUT_UNDEFINED && NewLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL )
+        {
+            ImageMemoryBarrier.srcAccessMask = 0;
+            ImageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            srcStageMask                     = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            dstStageMask                     = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        }
+        else if( layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && NewLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL )
+        {
+            ImageMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            ImageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            srcStageMask                     = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            dstStageMask                     = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        }
+        else
+        {
+            _CriticalThrow( std::format( "Unsupported layout transition, old layout: {}, new layout: {}", std::to_string( layout ), std::to_string( NewLayout ) ) );
+        }
+        ImageMemoryBarrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+        ImageMemoryBarrier.subresourceRange.layerCount     = 1;
+        ImageMemoryBarrier.subresourceRange.baseArrayLayer = 0;
+        ImageMemoryBarrier.subresourceRange.levelCount     = 1;
+        ImageMemoryBarrier.subresourceRange.baseMipLevel   = 0;
+
+        VkCommandBuffer commandBuffer{ BeginSingleTimeCommand() };
+
+        vkCmdPipelineBarrier( commandBuffer, srcStageMask, dstStageMask, VK_DEPENDENCY_BY_REGION_BIT, 0, 0, 0, 0, 1, &ImageMemoryBarrier );
+        EndSingleTimeCommand( commandBuffer );
     }
 
     void CreateVertexBuffer()
@@ -992,9 +1212,9 @@ class App
             std::vector<uint32_t> mIndecies;
             VkBufferCopy sVerteciesCopy{};
             VkBufferCopy sIndeciesCopy{};
-            if( !tinyobj::LoadObj( &attrib, &shapes, &materials, &warn, &err, std::format( "../../{}", Path->first ).c_str() ) )
+            if( !tinyobj::LoadObj( &attrib, &shapes, &materials, &warn, &err, std::format( "{}../{}", PATH_PREFIX, Path->first ).c_str() ) )
             {
-                _CriticalThrow( std::format( "Failed to Load model {}:\nwarning:\t{}\nerror:{}.", std::format( "../../{}", Path->first ).c_str(), warn, err ) );
+                _CriticalThrow( std::format( "Failed to Load model {}:\nwarning:\t{}\nerror:\t{}.", std::format( "{}../{}", PATH_PREFIX, Path->first ).c_str(), warn, err ) );
             }
             if( warn.length() )
                 SPDLOG_WARN( "Warn with load model {}:{}", Path->first, warn );
@@ -1040,59 +1260,31 @@ class App
             VerteciesOffSets.push_back( sVerteciesCopy.dstOffset );
             viBpC.push_back( sIndeciesCopy );
             Models[ Path->second ] = mData;
-            // LoadModel( std::format( "../../{}", Path.first ).c_str(), Path.second );
-            // ObjectVertices        = Models[ "plate" ].ModelVertecies;
-            // ObjectVerticesIndices = Models[ "plate" ].ModelVerteciesIndices;
         }
-        // std::string previuseName{};
-
-        // for( auto &m : Models )
-        // {
-        // for( auto i{ 0 }; i < m.second.ModelVertecies.size(); i++ )
-        // {
-        //     AllModelsVertecies.push_back( m.second.ModelVertecies.data()[ i ] );
-        // }
-        // for( auto i{ 0 }; i < m.second.ModelVerteciesIndices.size(); i++ )
-        // {
-        //     AllModelsVerteciesIndecies.push_back( m.second.ModelVerteciesIndices.data()[ i ] );
-        // }
-        // len_vB += m.second.VerticesBufferCopy.size;
-        // len_viB += m.second.VertexIndeciesBufferCopy.size;
-        // if( !previuseName.empty() )
-        // {
-        //     m.second.VerticesBufferCopy.dstOffset = m.second.VerticesBufferCopy.srcOffset = Models[ previuseName ].VerticesBufferCopy.srcOffset + Models[ previuseName ].VerticesBufferCopy.size;
-        //     m.second.VertexIndeciesBufferCopy.dstOffset = m.second.VertexIndeciesBufferCopy.srcOffset = Models[ previuseName ].VertexIndeciesBufferCopy.srcOffset + Models[ previuseName ].VertexIndeciesBufferCopy.size;
-        // }
-        // previuseName = m.first;
-        // vBpC.push_back( m.second.VerticesBufferCopy );
-        // VerteciesOffSets.push_back( m.second.VerticesBufferCopy.dstOffset );
-        // viBpC.push_back( m.second.VertexIndeciesBufferCopy );
-        // IndeciesOffSets.push_back( m.second.VertexIndeciesBufferCopy.dstOffset );
-        // }
-
         void *data;
-        // VkDeviceSize bSize{ len_vB };
-        CreateBuffer( len_vB, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, TransferVertexBuffer, TransferVertexBufferMemory );
-        vkMapMemory( LogicalDevice, TransferVertexBufferMemory, 0, len_vB, 0, &data );
+        VkBuffer TransferBuffer;
+        VkDeviceMemory TransferBufferMemory;
+        CreateBuffer( len_vB, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, {}, TransferBuffer, TransferBufferMemory, 0 );
+        vkMapMemory( LogicalDevice, TransferBufferMemory, 0, len_vB, 0, &data );
         memcpy( data, vBp.data(), static_cast<size_t>( len_vB ) );
-        vkUnmapMemory( LogicalDevice, TransferVertexBufferMemory );
-        CreateBuffer( len_vB, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VertexBuffer, VertexBufferMemory );
-        TransferDataBetweenBuffers( TransferVertexBuffer, VertexBuffer, vBpC );
-        vkDestroyBuffer( LogicalDevice, TransferVertexBuffer, nullptr );
-        vkFreeMemory( LogicalDevice, TransferVertexBufferMemory, nullptr );
+        vkUnmapMemory( LogicalDevice, TransferBufferMemory );
+        CreateBuffer( len_vB, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, {}, VertexBuffer, VertexBufferMemory, 0 );
+        TransferDataBetweenBuffers( TransferBuffer, VertexBuffer, vBpC );
+        vkDestroyBuffer( LogicalDevice, TransferBuffer, nullptr );
+        vkFreeMemory( LogicalDevice, TransferBufferMemory, nullptr );
 
-        CreateBuffer( len_viB, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, TransferVertexBuffer, TransferVertexBufferMemory );
+        CreateBuffer( len_viB, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, {}, TransferBuffer, TransferBufferMemory, 0 );
 
-        vkMapMemory( LogicalDevice, TransferVertexBufferMemory, 0, len_viB, 0, &data );
+        vkMapMemory( LogicalDevice, TransferBufferMemory, 0, len_viB, 0, &data );
         memcpy( data, viBp.data(), len_viB );
-        vkUnmapMemory( LogicalDevice, TransferVertexBufferMemory );
+        vkUnmapMemory( LogicalDevice, TransferBufferMemory );
 
-        CreateBuffer( len_viB, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VertexIndecesBuffer, VertexIndecesBufferMemory );
+        CreateBuffer( len_viB, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, {}, VertexIndecesBuffer, VertexIndecesBufferMemory, 0 );
 
-        TransferDataBetweenBuffers( TransferVertexBuffer, VertexIndecesBuffer, viBpC );
+        TransferDataBetweenBuffers( TransferBuffer, VertexIndecesBuffer, viBpC );
 
-        vkDestroyBuffer( LogicalDevice, TransferVertexBuffer, nullptr );
-        vkFreeMemory( LogicalDevice, TransferVertexBufferMemory, nullptr );
+        vkDestroyBuffer( LogicalDevice, TransferBuffer, nullptr );
+        vkFreeMemory( LogicalDevice, TransferBufferMemory, nullptr );
     }
 
     void CreateUniformBuffers()
@@ -1101,7 +1293,7 @@ class App
         UniformBuffersMemory.resize( SwapchainImgs.size() );
         for( size_t i{ 0 }; i < SwapchainImgs.size(); i++ )
         {
-            CreateBuffer( sizeof( UniformBufferObject ), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, UniformBuffers[ i ], UniformBuffersMemory[ i ] );
+            CreateBuffer( sizeof( UniformBufferObject ), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, {}, UniformBuffers[ i ], UniformBuffersMemory[ i ], 0 );
         }
     }
 
@@ -1161,35 +1353,16 @@ class App
 
     void TransferDataBetweenBuffers( VkBuffer bSrc, VkBuffer bDst, std::vector<VkBufferCopy> &BufferCopyInfo )
     {
-        VkCommandBufferAllocateInfo CommandBufferAllocateInfo{};
-        CommandBufferAllocateInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        CommandBufferAllocateInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        CommandBufferAllocateInfo.commandPool        = CommandPool;
-        CommandBufferAllocateInfo.commandBufferCount = 1;
-        VkCommandBuffer CommandBuffer;
-        VkResult Result{ vkAllocateCommandBuffers( LogicalDevice, &CommandBufferAllocateInfo, &CommandBuffer ) };
-        if( Result != VK_SUCCESS )
-        {
-            _CriticalThrow( std::format( "Failed to Allocate command buffer, error: {}.", string_VkResult( Result ) ) );
-        }
-        VkCommandBufferBeginInfo CommandBufferBeginInfo{};
-        CommandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        CommandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer( CommandBuffer, &CommandBufferBeginInfo );
-        vkCmdCopyBuffer( CommandBuffer, bSrc, bDst, static_cast<uint32_t>( BufferCopyInfo.size() ), BufferCopyInfo.data() );
-        vkEndCommandBuffer( CommandBuffer );
-        VkSubmitInfo SubmitInfo{};
-        SubmitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        SubmitInfo.commandBufferCount = 1;
-        SubmitInfo.pCommandBuffers    = &CommandBuffer;
+        VkCommandBuffer commandBuffer{ BeginSingleTimeCommand() };
+        vkCmdCopyBuffer( commandBuffer, bSrc, bDst, static_cast<uint32_t>( BufferCopyInfo.size() ), BufferCopyInfo.data() );
+        EndSingleTimeCommand( commandBuffer );
+    }
 
-        Result = vkQueueSubmit( LogicalDeviceGraphickQueue, 1, &SubmitInfo, nullptr );
-        if( Result != VK_SUCCESS )
-        {
-            _CriticalThrow( std::format( "Failed to Queue submit, error: {}.", string_VkResult( Result ) ) );
-        }
-        vkQueueWaitIdle( LogicalDeviceGraphickQueue );
-        vkFreeCommandBuffers( LogicalDevice, CommandPool, 1, &CommandBuffer );
+    void TransferBufferToImage( VkBuffer iSrc, VkImage iDst, std::vector<VkBufferImageCopy> &BufferImageCopy )
+    {
+        VkCommandBuffer commandBuffer{ BeginSingleTimeCommand() };
+        vkCmdCopyBufferToImage( commandBuffer, iSrc, iDst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>( BufferImageCopy.size() ), BufferImageCopy.data() );
+        EndSingleTimeCommand( commandBuffer );
     }
 
     uint32_t MemoryTypeIndex( uint32_t type, VkMemoryPropertyFlags properties )
@@ -1197,9 +1370,9 @@ class App
 
         for( uint32_t i{ 0 }; i < PhysicalDeviceMemoryProperties.memoryTypeCount; i++ )
         {
-            if( ( type & ( 1 << i ) ) && ( !( ( PhysicalDeviceMemoryProperties.memoryTypes[ i ].propertyFlags & properties ) ^ properties ) ) ) return i;
+            if( ( type & ( 1 << i ) ) && ( ( PhysicalDeviceMemoryProperties.memoryTypes[ i ].propertyFlags & properties ) == properties ) ) return i;
         }
-        _CriticalThrow( "Failed to find suitable memory type." );
+        _CriticalThrow( std::format( "Failed to find suitable memory type, type: {}, properties: {}.", type, properties ) );
         return -1;
     }
 
@@ -1220,11 +1393,8 @@ class App
 
     void RecordCommandBuffer( VkCommandBuffer commandBuffer, uint32_t imI )
     {
-        // for (size_t i{0}; i < CommandBuffers.size(); i++)
-        // {
         VkCommandBufferBeginInfo CommandBufferBeginInfo{};
         CommandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        // Result = vkBeginCommandBuffer(CommandBuffers[i], &CommandBufferBeginInfo);
         VkResult Result{ vkBeginCommandBuffer( commandBuffer, &CommandBufferBeginInfo ) };
         if( Result != VK_SUCCESS )
         {
@@ -1269,7 +1439,6 @@ class App
             vkCmdDrawIndexed( commandBuffer, static_cast<uint32_t>( m.second.ModelVerteciesIndices.size() ), 1, m.second.IndeciesOffset, 0, 0 );
         }
 
-        // vkCmdDrawIndexed( commandBuffer, 6, 1, 6, 0, 0 );
         vkCmdEndRenderPass( commandBuffer );
 
         Result = vkEndCommandBuffer( commandBuffer );
@@ -1277,7 +1446,6 @@ class App
         {
             _CriticalThrow( std::format( "Failed to record Command buffer, error: {}.", string_VkResult( Result ) ) );
         }
-        // }
     }
 
     void CreateDescriptionSetLayout()
