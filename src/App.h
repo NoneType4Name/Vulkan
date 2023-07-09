@@ -116,6 +116,7 @@ struct Vertex
 {
     glm::vec3 coordinate;
     glm::vec4 color;
+    glm::vec2 texture;
     static VkVertexInputBindingDescription InputBindingDescription()
     {
         VkVertexInputBindingDescription VertexInputBindingDescription{};
@@ -125,9 +126,9 @@ struct Vertex
         return VertexInputBindingDescription;
     }
 
-    static std::array<VkVertexInputAttributeDescription, 2> InputAttributeDescription()
+    static std::array<VkVertexInputAttributeDescription, 3> InputAttributeDescription()
     {
-        std::array<VkVertexInputAttributeDescription, 2> VertexInputAttributeDescription{};
+        std::array<VkVertexInputAttributeDescription, 3> VertexInputAttributeDescription{};
         VertexInputAttributeDescription[ 0 ].binding  = 0;
         VertexInputAttributeDescription[ 0 ].location = 0;
         VertexInputAttributeDescription[ 0 ].format   = VK_FORMAT_R32G32B32_SFLOAT;
@@ -138,11 +139,15 @@ struct Vertex
         VertexInputAttributeDescription[ 1 ].format   = VK_FORMAT_R32G32B32A32_SFLOAT;
         VertexInputAttributeDescription[ 1 ].offset   = offsetof( Vertex, color );
 
+        VertexInputAttributeDescription[ 2 ].binding  = 0;
+        VertexInputAttributeDescription[ 2 ].location = 2;
+        VertexInputAttributeDescription[ 2 ].format   = VK_FORMAT_R32G32_SFLOAT;
+        VertexInputAttributeDescription[ 2 ].offset   = offsetof( Vertex, texture );
         return VertexInputAttributeDescription;
     }
     bool operator==( const Vertex &other ) const
     {
-        return coordinate == other.coordinate && color == other.color;
+        return coordinate == other.coordinate && color == other.color && texture == other.texture;
     }
 };
 struct UniformBufferObject
@@ -195,7 +200,7 @@ class App
     {
         DestroySwapchain();
         vkDestroyDescriptorPool( LogicalDevice, DescriptorPool, nullptr );
-        vkDestroyDescriptorSetLayout( LogicalDevice, DescriptorSetLayout, nullptr );
+        vkDestroyDescriptorSetLayout( LogicalDevice, DescriptorsSetLayout, nullptr );
         vkDestroySampler( LogicalDevice, TextureSampler, nullptr );
         vkDestroyImageView( LogicalDevice, TextureImageView, nullptr );
         vkDestroyImage( LogicalDevice, TextureImage, nullptr );
@@ -256,7 +261,7 @@ class App
     VkQueue LogicalDeviceTransferQueue;
     std::vector<VkPipelineShaderStageCreateInfo> ShaderStage;
     VkPipelineLayout PipelineLayout;
-    VkDescriptorSetLayout DescriptorSetLayout;
+    VkDescriptorSetLayout DescriptorsSetLayout;
     VkRenderPass RenderPass;
     VkPipeline GraphicsPipeline;
     SwapChainProperties PhysiacalDeviceSwapchainProperties;
@@ -448,15 +453,15 @@ class App
     // Support Functios
     void UpdateUniformBuffer( uint32_t imgI )
     {
+        // TEST
         static auto time{ std::chrono::high_resolution_clock::now() };
         UniformBufferObject UBO{};
         auto cTime = std::chrono::high_resolution_clock::now();
         float delta{ std::chrono::duration<float, std::chrono::seconds::period>( cTime - time ).count() };
-        UBO.model = glm::rotate( glm::mat4( 1.f ), glm::radians( 90.f ) * delta, glm::vec3( .0f, .0f, 1.f ) );
+        UBO.model = glm::rotate( glm::mat4( 1.f ), glm::radians( 90.f ) * 0, glm::vec3( .0f, .0f, 1.f ) );
         UBO.view  = glm::lookAt( glm::vec3( 2.f, 2.f, 2.f ), glm::vec3( .0f ), glm::vec3( .0f, .0f, 1.f ) );
         UBO.proj  = glm::perspective( glm::radians( 50.f ), PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.width / static_cast<float>( PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.height ), .0f, 2.f );
         UBO.proj[ 1 ][ 1 ] *= -1;
-
         void *data;
         vkMapMemory( LogicalDevice, UniformBuffersMemory[ imgI ], 0, sizeof( UBO ), 0, &data );
         memcpy( data, &UBO, sizeof( UBO ) );
@@ -860,7 +865,7 @@ class App
         VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
         pipelineLayoutInfo.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         pipelineLayoutInfo.setLayoutCount = 1;
-        pipelineLayoutInfo.pSetLayouts    = &DescriptorSetLayout;
+        pipelineLayoutInfo.pSetLayouts    = &DescriptorsSetLayout;
 
         VkResult Result{ vkCreatePipelineLayout( LogicalDevice, &pipelineLayoutInfo, nullptr, &PipelineLayout ) };
         if( Result != VK_SUCCESS )
@@ -1242,6 +1247,22 @@ class App
                         1.f,
                         !strcmp( Path->second, "test" ) ? 1.f : .0f,
                         1.f };
+                    switch( vert_i / 3 )
+                    {
+                        case 0:
+                            mVert.texture = { 0.f, 0.f };
+                            break;
+                        case 1:
+                            mVert.texture = { 0.f, 1.f };
+                            break;
+                        case 2:
+                            mVert.texture = { 1.f, 0.f };
+                            break;
+
+                        default:
+                            mVert.texture = { 1.f, 1.f };
+                            break;
+                    }
                     mVertecies.push_back( mVert );
                     vBp.push_back( mVert );
                 }
@@ -1299,14 +1320,20 @@ class App
 
     void CreateDescriptorsPool()
     {
-        VkDescriptorPoolSize DescriptorPoolSize{};
-        DescriptorPoolSize.type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        DescriptorPoolSize.descriptorCount = _MaxFramesInFlight;
+        VkDescriptorPoolSize UBDescriptorPoolSize{};
+        UBDescriptorPoolSize.type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        UBDescriptorPoolSize.descriptorCount = _MaxFramesInFlight;
+
+        VkDescriptorPoolSize SamplerDescriptorPoolSize{};
+        SamplerDescriptorPoolSize.type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        SamplerDescriptorPoolSize.descriptorCount = _MaxFramesInFlight;
+
+        VkDescriptorPoolSize DescriptorPoolSize[ 2 ]{ UBDescriptorPoolSize, SamplerDescriptorPoolSize };
 
         VkDescriptorPoolCreateInfo DescriptorPoolCreateInfo{};
         DescriptorPoolCreateInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        DescriptorPoolCreateInfo.poolSizeCount = 1;
-        DescriptorPoolCreateInfo.pPoolSizes    = &DescriptorPoolSize;
+        DescriptorPoolCreateInfo.poolSizeCount = sizeof( DescriptorPoolSize ) / sizeof( DescriptorPoolSize[ 0 ] );
+        DescriptorPoolCreateInfo.pPoolSizes    = DescriptorPoolSize;
         DescriptorPoolCreateInfo.maxSets       = _MaxFramesInFlight;
 
         VkResult Result{ vkCreateDescriptorPool( LogicalDevice, &DescriptorPoolCreateInfo, nullptr, &DescriptorPool ) };
@@ -1316,9 +1343,9 @@ class App
         }
     }
 
-    void CreateDescriptorSets()
+    void CreateDescriptorSets() // TODO: As normal class method
     {
-        std::vector<VkDescriptorSetLayout> DescriptorSetLayouts( _MaxFramesInFlight, DescriptorSetLayout );
+        std::vector<VkDescriptorSetLayout> DescriptorSetLayouts( _MaxFramesInFlight, DescriptorsSetLayout );
         VkDescriptorSetAllocateInfo DescriptorSetAllocateInfo{};
         DescriptorSetAllocateInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         DescriptorSetAllocateInfo.descriptorSetCount = _MaxFramesInFlight;
@@ -1338,16 +1365,33 @@ class App
             DescriptorBufferInfo.offset = 0;
             DescriptorBufferInfo.range  = sizeof( UniformBufferObject );
 
-            VkWriteDescriptorSet WriteDescriptorSet{};
-            WriteDescriptorSet.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            WriteDescriptorSet.dstSet          = DescriptorSets[ i ];
-            WriteDescriptorSet.dstBinding      = 0;
-            WriteDescriptorSet.dstArrayElement = 0;
-            WriteDescriptorSet.descriptorCount = 1;
-            WriteDescriptorSet.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            WriteDescriptorSet.pBufferInfo     = &DescriptorBufferInfo;
+            // TODO: As normal class method
+            VkWriteDescriptorSet WriteUBDescriptorSet{};
+            WriteUBDescriptorSet.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            WriteUBDescriptorSet.dstSet          = DescriptorSets[ i ];
+            WriteUBDescriptorSet.dstBinding      = 0;
+            WriteUBDescriptorSet.dstArrayElement = 0;
+            WriteUBDescriptorSet.descriptorCount = 1;
+            WriteUBDescriptorSet.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            WriteUBDescriptorSet.pBufferInfo     = &DescriptorBufferInfo;
 
-            vkUpdateDescriptorSets( LogicalDevice, 1, &WriteDescriptorSet, 0, nullptr );
+            VkDescriptorImageInfo DescriptorImageInfo{};
+            DescriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            DescriptorImageInfo.imageView   = TextureImageView; // TODO: As normal class method
+            DescriptorImageInfo.sampler     = TextureSampler;   // TODO: As normal class method
+
+            VkWriteDescriptorSet WriteSamplerDescriptorSet{};
+            WriteSamplerDescriptorSet.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            WriteSamplerDescriptorSet.dstSet          = DescriptorSets[ i ];
+            WriteSamplerDescriptorSet.dstBinding      = 1;
+            WriteSamplerDescriptorSet.dstArrayElement = 0;
+            WriteSamplerDescriptorSet.descriptorCount = 1;
+            WriteSamplerDescriptorSet.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            WriteSamplerDescriptorSet.pBufferInfo     = &DescriptorBufferInfo;
+            WriteSamplerDescriptorSet.pImageInfo      = &DescriptorImageInfo;
+
+            VkWriteDescriptorSet WriteDescriptorSet[ 2 ]{ WriteUBDescriptorSet, WriteSamplerDescriptorSet };
+            vkUpdateDescriptorSets( LogicalDevice, sizeof( WriteDescriptorSet ) / sizeof( WriteDescriptorSet[ 0 ] ), WriteDescriptorSet, 0, nullptr );
         }
     }
 
@@ -1450,17 +1494,24 @@ class App
 
     void CreateDescriptionSetLayout()
     {
-        VkDescriptorSetLayoutBinding DescriptorSetLayoutBinding{};
-        DescriptorSetLayoutBinding.binding         = 0;
-        DescriptorSetLayoutBinding.descriptorCount = 1;
-        DescriptorSetLayoutBinding.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        DescriptorSetLayoutBinding.stageFlags      = VK_SHADER_STAGE_ALL_GRAPHICS;
+        VkDescriptorSetLayoutBinding DescriptorSetLayoutBindingUB{};
+        DescriptorSetLayoutBindingUB.binding         = 0;
+        DescriptorSetLayoutBindingUB.descriptorCount = 1;
+        DescriptorSetLayoutBindingUB.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        DescriptorSetLayoutBindingUB.stageFlags      = VK_SHADER_STAGE_ALL_GRAPHICS;
 
+        VkDescriptorSetLayoutBinding DescriptorSetLayoutBindingSampler{};
+        DescriptorSetLayoutBindingSampler.binding         = 1;
+        DescriptorSetLayoutBindingSampler.descriptorCount = 1;
+        DescriptorSetLayoutBindingSampler.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        DescriptorSetLayoutBindingSampler.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        std::array<VkDescriptorSetLayoutBinding, 2> Binds{ DescriptorSetLayoutBindingUB, DescriptorSetLayoutBindingSampler };
         VkDescriptorSetLayoutCreateInfo DescriptorSetLayoutCreateInfo{};
         DescriptorSetLayoutCreateInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        DescriptorSetLayoutCreateInfo.bindingCount = 1;
-        DescriptorSetLayoutCreateInfo.pBindings    = &DescriptorSetLayoutBinding;
-        VkResult Result{ vkCreateDescriptorSetLayout( LogicalDevice, &DescriptorSetLayoutCreateInfo, nullptr, &DescriptorSetLayout ) };
+        DescriptorSetLayoutCreateInfo.bindingCount = static_cast<uint32_t>( Binds.size() );
+        DescriptorSetLayoutCreateInfo.pBindings    = Binds.data();
+        VkResult Result{ vkCreateDescriptorSetLayout( LogicalDevice, &DescriptorSetLayoutCreateInfo, nullptr, &DescriptorsSetLayout ) };
         if( Result != VK_SUCCESS )
         {
             _CriticalThrow( std::format( "Failed to Create descriptor set layout, error {}.", string_VkResult( Result ) ) );
