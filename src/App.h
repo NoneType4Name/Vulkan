@@ -458,10 +458,9 @@ class App
         UniformBufferObject UBO{};
         auto cTime = std::chrono::high_resolution_clock::now();
         float delta{ std::chrono::duration<float, std::chrono::seconds::period>( cTime - time ).count() };
-        UBO.model = glm::rotate( glm::mat4( 1.f ), glm::radians( 90.f ) * 0, glm::vec3( .0f, .0f, 1.f ) );
-        UBO.view  = glm::lookAt( glm::vec3( 2.f, 2.f, 2.f ), glm::vec3( .0f ), glm::vec3( .0f, .0f, 1.f ) );
+        UBO.model = glm::rotate( glm::mat4( 1.f ), glm::radians( 90.f ) * delta, glm::vec3( .0f, 1.0f, .0f ) );
+        UBO.view  = glm::lookAt( glm::vec3( .0f, .0f, 2.0f ), glm::vec3( .0f ), glm::vec3( .0f, 1.0f, .0f ) ); // Y = -Y
         UBO.proj  = glm::perspective( glm::radians( 50.f ), PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.width / static_cast<float>( PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.height ), .0f, 2.f );
-        UBO.proj[ 1 ][ 1 ] *= -1;
         void *data;
         vkMapMemory( LogicalDevice, UniformBuffersMemory[ imgI ], 0, sizeof( UBO ), 0, &data );
         memcpy( data, &UBO, sizeof( UBO ) );
@@ -1250,17 +1249,17 @@ class App
                     switch( vert_i / 3 )
                     {
                         case 0:
-                            mVert.texture = { 0.f, 0.f };
-                            break;
-                        case 1:
                             mVert.texture = { 0.f, 1.f };
                             break;
+                        case 1:
+                            mVert.texture = { 0.f, 0.f };
+                            break;
                         case 2:
-                            mVert.texture = { 1.f, 0.f };
+                            mVert.texture = { 1.f, 1.f };
                             break;
 
                         default:
-                            mVert.texture = { 1.f, 1.f };
+                            mVert.texture = { 1.f, 0.f };
                             break;
                     }
                     mVertecies.push_back( mVert );
