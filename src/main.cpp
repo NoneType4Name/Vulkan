@@ -3,7 +3,7 @@
 int main( int argc, char *argv[] )
 {
     std::vector<std::pair<const char *, const char *>> ModelsPaths{
-        { "models/plate.obj", "test" } };
+        { "models/model.obj", "test" } };
     try
     {
         App app{ 0, 0, "HV", ModelsPaths };
