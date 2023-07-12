@@ -468,8 +468,8 @@ class App
         auto cTime = std::chrono::high_resolution_clock::now();
         float delta{ std::chrono::duration<float, std::chrono::seconds::period>( cTime - time ).count() };
         UBO.model = glm::rotate( glm::mat4( 1.f ), glm::radians( 90.f ) * 0, glm::vec3( .0f, 1.0f, .0f ) );
-        UBO.view  = glm::lookAt( glm::vec3( 1.3f, .0f, 1.3f ), glm::vec3( .0f, .0f, .0f ), glm::vec3( .0f, 1.0f, .0f ) ); // Y = -Y
-        UBO.proj  = glm::perspective( glm::radians( 120.f ), PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.width / static_cast<float>( PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.height ), .10f, 100.f );
+        UBO.view  = glm::lookAt( glm::vec3( .0f, .0f, 1.0f * delta ), glm::vec3( .0f, .0f, .0f ), glm::vec3( .0f, 1.0f, .0f ) ); // Y = -Y
+        UBO.proj  = glm::perspective( glm::radians( 120.f ), PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.width / static_cast<float>( PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.height ), .10f, 2.f );
         void *data;
         vkMapMemory( LogicalDevice, UniformBuffersMemory[ imgI ], 0, sizeof( UBO ), 0, &data );
         memcpy( data, &UBO, sizeof( UBO ) );
@@ -826,8 +826,8 @@ class App
 
         VkPipelineInputAssemblyStateCreateInfo inputAssemblyCreateInfo{};
         inputAssemblyCreateInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        inputAssemblyCreateInfo.primitiveRestartEnable = VK_TRUE;
-        inputAssemblyCreateInfo.topology               = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+        inputAssemblyCreateInfo.primitiveRestartEnable = VK_FALSE;
+        inputAssemblyCreateInfo.topology               = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
         VkPipelineViewportStateCreateInfo viewportState{};
         viewportState.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -1323,30 +1323,7 @@ class App
                 SPDLOG_ERROR( "Error with load model {}:{}", Path->first, err );
             Model mData;
             std::unordered_map<Vertex, uint32_t> uniqueVertices{};
-            // if( !Models.empty() ) mData.VerteciesOffset = Models[ ( Path - 1 )->second ].VerteciesOffset + static_cast<uint32_t>( Models[ ( Path - 1 )->second ].ModelVertecies.size() );
-
-            // for( const auto &shape : shapes )
-            // {
-            //     for( const auto &index : shape.mesh.indices )
-            //     {
-            //         mIndecies.push_back( index.vertex_index + mData.VerteciesOffset );
-            //         viBp.push_back( index.vertex_index + mData.VerteciesOffset );
-            //     }
-            //     size_t text_i{ 0 };
-            //     for( size_t vert_i{ 0 }; vert_i < attrib.vertices.size(); vert_i += 3 )
-            //     {
-            //         Vertex mVert{};
-            //         mVert.coordinate = {
-            //             attrib.vertices[ vert_i ],
-            //             attrib.vertices[ vert_i + 1 ],
-            //             attrib.vertices[ vert_i + 2 ] };
-            //         mVert.color   = { attrib.colors[ vert_i ], attrib.colors[ vert_i + 1 ], attrib.colors[ vert_i + 2 ], 1.f };
-            //         mVert.texture = { attrib.texcoords[ text_i ], attrib.texcoords[ ++text_i ] };
-            //         text_i++;
-            //         mVertecies.push_back( mVert );
-            //         vBp.push_back( mVert );
-            //     }
-            // }
+            if( !Models.empty() ) mData.VerteciesOffset = Models[ ( Path - 1 )->second ].VerteciesOffset + static_cast<uint32_t>( Models[ ( Path - 1 )->second ].ModelVertecies.size() );
             for( const auto &shape : shapes )
             {
                 for( const auto &index : shape.mesh.indices )
@@ -1366,7 +1343,7 @@ class App
 
                     if( uniqueVertices.count( vertex ) == 0 )
                     {
-                        uniqueVertices[ vertex ] = static_cast<uint32_t>( mVertecies.size() );
+                        uniqueVertices[ vertex ] = mData.VerteciesOffset + static_cast<uint32_t>( mVertecies.size() );
                         mVertecies.push_back( vertex );
                         vBp.push_back( vertex );
                     }
