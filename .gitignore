@@ -1,7 +1,5 @@
-.gitignore
 build/
-p7/
-p7.lib
-.vscode
 CMakeUserPresets.json
 .clang-format
+bin/shaders
+.vscode/settings.json

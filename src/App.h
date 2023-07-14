@@ -14,14 +14,11 @@
 
 #ifdef _DEBUG
 #    define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
-#    define PATH_PREFIX         "../"
 const bool APP_DEBUG = true;
 #else
 #    define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_CRITICAL
-#    define PATH_PREFIX         "./"
 
 const bool APP_DEBUG = false;
-
 #endif
 #include <map>
 #include <set>
@@ -268,15 +265,15 @@ class App
     VkDescriptorSetLayout DescriptorsSetLayout;
     VkRenderPass RenderPass;
     VkPipeline GraphicsPipeline;
-    SwapChainProperties PhysiacalDeviceSwapchainProperties;
+    SwapChainProperties PhysicalDeviceSwapchainProperties;
     VkPhysicalDevice PhysicalDevice{ VK_NULL_HANDLE };
     VkPhysicalDeviceProperties PhysicalDeviceProperties;
     VkPhysicalDeviceFeatures PhysicalDeviceFeatures;
     QueueFamilyIndices PhysicalDeviceIndices;
     VkPhysicalDeviceFeatures LogicalDeviceFeatures{};
     VkSwapchainKHR SwapChain;
-    VkFormat SwapchainFormat;
-    VkPresentModeKHR SwapchainPresentMode;
+    VkFormat SwapchainFormat;              // TODO: in one struct
+    VkPresentModeKHR SwapchainPresentMode; // TODO: in one struct
     std::vector<VkImage> SwapchainImgs;
     std::vector<VkImageView> SwapchainImgsView;
     std::vector<VkFramebuffer> SwapchainFrameBuffers;
@@ -309,6 +306,10 @@ class App
     VkDebugUtilsMessengerCreateInfoEXT DbgMessengerCreateInfo{};
     std::unordered_map<std::string, Model> Models;
     std::vector<VkDeviceSize> VerteciesOffSets{};
+    VkSampleCountFlagBits SampleCount{ VK_SAMPLE_COUNT_1_BIT };
+    VkImage ColorImage;
+    VkDeviceMemory ColorImageMemory;
+    VkImageView ColorImageView;
 
     void initWindow()
     {
@@ -364,11 +365,12 @@ class App
         CreateDescriptionSetLayout();
         CreateGraphicsPipelines();
         CreateCommandPool();
+        CreateColorImage();
         CreateDepthImage();
         CreateFrameBuffers();
         CreateTextureImage();
         CreateTextureImageView();
-        CreateTextureSempler();
+        CreateTextureSampler();
         CreateVertexBuffer();
         CreateUniformBuffers();
         CreateDescriptorsPool();
@@ -469,8 +471,8 @@ class App
         auto cTime = std::chrono::high_resolution_clock::now();
         float delta{ std::chrono::duration<float, std::chrono::seconds::period>( cTime - time ).count() };
         UBO.model = glm::rotate( glm::mat4( 1.f ), glm::radians( 90.f ) * 0, glm::vec3( .0f, 1.0f, .0f ) );
-        UBO.view  = glm::lookAt( glm::vec3( .0f, .0f, 1.0f * delta ), glm::vec3( .0f, .0f, .0f ), glm::vec3( .0f, 1.0f, .0f ) ); // Y = -Y
-        UBO.proj  = glm::perspective( glm::radians( 120.f ), PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.width / static_cast<float>( PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.height ), .01f, 2000.f );
+        UBO.view  = glm::lookAt( glm::vec3( .0f, .0f, 1.0f ), glm::vec3( .0f, .0f, .0f ), glm::vec3( .0f, 1.0f, .0f ) ); // Y = -Y
+        UBO.proj  = glm::perspective( glm::radians( 120.f ), PhysicalDeviceSwapchainProperties.Capabilities.currentExtent.width / static_cast<float>( PhysicalDeviceSwapchainProperties.Capabilities.currentExtent.height ), .01f, 2000.f );
         void *data;
         vkMapMemory( LogicalDevice, UniformBuffersMemory[ imgI ], 0, sizeof( UBO ), 0, &data );
         memcpy( data, &UBO, sizeof( UBO ) );
@@ -487,6 +489,9 @@ class App
             vkDestroyFramebuffer( LogicalDevice, SwapchainFrameBuffers[ i ], nullptr );
             vkDestroyImageView( LogicalDevice, SwapchainImgsView[ i ], nullptr );
         }
+        vkDestroyImageView( LogicalDevice, ColorImageView, nullptr );
+        vkDestroyImage( LogicalDevice, ColorImage, nullptr );
+        vkFreeMemory( LogicalDevice, ColorImageMemory, nullptr );
         vkDestroyImageView( LogicalDevice, DepthImageView, nullptr );
         vkDestroyImage( LogicalDevice, DepthImage, nullptr );
         vkFreeMemory( LogicalDevice, DepthImageMemory, nullptr );
@@ -508,7 +513,6 @@ class App
         }
         std::vector<VkPhysicalDevice> PhysicalDevices{ CountPhysicalDevices };
         vkEnumeratePhysicalDevices( instance, &CountPhysicalDevices, PhysicalDevices.data() );
-        // if (!CountPhysicalDevices-1) PhysicalDevice = PhysicalDevices[0];
         for( const auto &device : PhysicalDevices )
         {
             if( isDeviceSuitable( device ) ) break;
@@ -521,7 +525,14 @@ class App
         }
         SPDLOG_INFO( "Selected {}.", PhysicalDeviceProperties.deviceName );
         vkGetPhysicalDeviceMemoryProperties( PhysicalDevice, &PhysicalDeviceMemoryProperties );
-        DepthImageFormat = FormatPriority( { VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT }, VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT );
+        DepthImageFormat          = FormatPriority( { VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT }, VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT );
+        VkSampleCountFlags _Count = PhysicalDeviceProperties.limits.framebufferDepthSampleCounts & PhysicalDeviceProperties.limits.framebufferDepthSampleCounts;
+        if( _Count & VK_SAMPLE_COUNT_64_BIT ) SampleCount = VK_SAMPLE_COUNT_64_BIT;
+        if( _Count & VK_SAMPLE_COUNT_32_BIT ) SampleCount = VK_SAMPLE_COUNT_32_BIT;
+        if( _Count & VK_SAMPLE_COUNT_16_BIT ) SampleCount = VK_SAMPLE_COUNT_16_BIT;
+        if( _Count & VK_SAMPLE_COUNT_8_BIT ) SampleCount = VK_SAMPLE_COUNT_8_BIT;
+        if( _Count & VK_SAMPLE_COUNT_4_BIT ) SampleCount = VK_SAMPLE_COUNT_4_BIT;
+        if( _Count & VK_SAMPLE_COUNT_2_BIT ) SampleCount = VK_SAMPLE_COUNT_2_BIT;
     }
 
     bool isDeviceSuitable( VkPhysicalDevice device )
@@ -538,7 +549,7 @@ class App
         {
             SwapChainProperties deviceSwapChainProperties{ GetSwapchainProperties( device ) };
             if( !deviceSwapChainProperties.Format.size() && !deviceSwapChainProperties.PresentModes.size() ) return false;
-            PhysiacalDeviceSwapchainProperties = deviceSwapChainProperties;
+            PhysicalDeviceSwapchainProperties = deviceSwapChainProperties;
         }
         PhysicalDevice        = device;
         PhysicalDeviceIndices = indices;
@@ -596,6 +607,7 @@ class App
             queueCreateInfos.push_back( queueCreateInfo );
         }
         LogicalDeviceFeatures.samplerAnisotropy = VK_TRUE;
+        LogicalDeviceFeatures.sampleRateShading = VK_TRUE;
         VkDeviceCreateInfo createInfo{};
         createInfo.sType                = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         createInfo.queueCreateInfoCount = static_cast<uint32_t>( queueCreateInfos.size() );
@@ -613,8 +625,8 @@ class App
             createInfo.enabledLayerCount = 0;
         // extension
 
-        VkResult DeviceCreateCode = vkCreateDevice( PhysicalDevice, &createInfo, nullptr, &LogicalDevice );
-        if( DeviceCreateCode != VK_SUCCESS ) _CriticalThrow( std::format( "Failed create logic device, error code: {}.", string_VkResult( DeviceCreateCode ) ) );
+        VkResult Result = vkCreateDevice( PhysicalDevice, &createInfo, nullptr, &LogicalDevice );
+        if( Result != VK_SUCCESS ) _CriticalThrow( std::format( "Failed create logic device, error code: {}.", string_VkResult( Result ) ) );
         vkGetDeviceQueue( LogicalDevice, PhysicalDeviceIndices.graphicsFamily.value(), 0, &LogicalDeviceGraphickQueue );
         vkGetDeviceQueue( LogicalDevice, PhysicalDeviceIndices.presentFamily.value(), 0, &LogicalDevicePresentQueue );
         vkGetDeviceQueue( LogicalDevice, PhysicalDeviceIndices.transferFamily.value(), 0, &LogicalDeviceTransferQueue );
@@ -647,16 +659,16 @@ class App
 
     void CreateSwapchain()
     {
-        PhysiacalDeviceSwapchainProperties = GetSwapchainProperties( PhysicalDevice );
-        VkSurfaceFormatKHR SurfaceFormat{ PhysiacalDeviceSwapchainProperties.Format[ 0 ] };
-        for( const auto &format : PhysiacalDeviceSwapchainProperties.Format )
+        PhysicalDeviceSwapchainProperties = GetSwapchainProperties( PhysicalDevice );
+        VkSurfaceFormatKHR SurfaceFormat{ PhysicalDeviceSwapchainProperties.Format[ 0 ] };
+        for( const auto &format : PhysicalDeviceSwapchainProperties.Format )
         {
             if( format.format == VK_FORMAT_B8G8R8A8_SRGB && format.colorSpace == VK_COLORSPACE_SRGB_NONLINEAR_KHR ) SurfaceFormat = format;
         }
         SwapchainFormat = SurfaceFormat.format;
 
         VkPresentModeKHR SurfacePresentMode{ VK_PRESENT_MODE_FIFO_KHR };
-        for( const auto &mode : PhysiacalDeviceSwapchainProperties.PresentModes )
+        for( const auto &mode : PhysicalDeviceSwapchainProperties.PresentModes )
         {
             if( mode == VK_PRESENT_MODE_MAILBOX_KHR ) SwapchainPresentMode = SurfacePresentMode = mode;
         }
@@ -667,15 +679,15 @@ class App
             glfwGetFramebufferSize( window, &width, &height );
             glfwWaitEvents();
         }
-        PhysiacalDeviceSwapchainProperties.Capabilities.maxImageExtent.width  = DISPLAY_WIDTH;
-        PhysiacalDeviceSwapchainProperties.Capabilities.maxImageExtent.height = DISPLAY_HEIGHT;
-        PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.width   = std::clamp( static_cast<uint32_t>( width ), PhysiacalDeviceSwapchainProperties.Capabilities.minImageExtent.width, PhysiacalDeviceSwapchainProperties.Capabilities.maxImageExtent.width );
-        PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.height  = std::clamp( static_cast<uint32_t>( height ), PhysiacalDeviceSwapchainProperties.Capabilities.minImageExtent.height, PhysiacalDeviceSwapchainProperties.Capabilities.maxImageExtent.height );
-        // PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.height = height;
-        uint32_t imageCount = PhysiacalDeviceSwapchainProperties.Capabilities.minImageCount;
-        if( PhysiacalDeviceSwapchainProperties.Capabilities.maxImageCount > 0 && imageCount < PhysiacalDeviceSwapchainProperties.Capabilities.maxImageCount )
+        PhysicalDeviceSwapchainProperties.Capabilities.maxImageExtent.width  = DISPLAY_WIDTH;
+        PhysicalDeviceSwapchainProperties.Capabilities.maxImageExtent.height = DISPLAY_HEIGHT;
+        PhysicalDeviceSwapchainProperties.Capabilities.currentExtent.width   = std::clamp( static_cast<uint32_t>( width ), PhysicalDeviceSwapchainProperties.Capabilities.minImageExtent.width, PhysicalDeviceSwapchainProperties.Capabilities.maxImageExtent.width );
+        PhysicalDeviceSwapchainProperties.Capabilities.currentExtent.height  = std::clamp( static_cast<uint32_t>( height ), PhysicalDeviceSwapchainProperties.Capabilities.minImageExtent.height, PhysicalDeviceSwapchainProperties.Capabilities.maxImageExtent.height );
+        // PhysicalDeviceSwapchainProperties.Capabilities.currentExtent.height = height;
+        uint32_t imageCount = PhysicalDeviceSwapchainProperties.Capabilities.minImageCount;
+        if( PhysicalDeviceSwapchainProperties.Capabilities.maxImageCount > 0 && imageCount < PhysicalDeviceSwapchainProperties.Capabilities.maxImageCount )
         {
-            imageCount = PhysiacalDeviceSwapchainProperties.Capabilities.maxImageCount;
+            imageCount = PhysicalDeviceSwapchainProperties.Capabilities.maxImageCount;
         }
         _MaxFramesInFlight = imageCount;
         VkSwapchainCreateInfoKHR createInfo{};
@@ -685,7 +697,7 @@ class App
         createInfo.imageFormat      = SurfaceFormat.format;
         createInfo.imageColorSpace  = SurfaceFormat.colorSpace;
         createInfo.presentMode      = SurfacePresentMode;
-        createInfo.imageExtent      = PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent;
+        createInfo.imageExtent      = PhysicalDeviceSwapchainProperties.Capabilities.currentExtent;
         createInfo.imageArrayLayers = 1;
         createInfo.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         uint32_t physicalDeviceIndicesValue[]{ PhysicalDeviceIndices.graphicsFamily.value(), PhysicalDeviceIndices.presentFamily.value() };
@@ -699,7 +711,7 @@ class App
         {
             createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
         }
-        createInfo.preTransform   = PhysiacalDeviceSwapchainProperties.Capabilities.currentTransform;
+        createInfo.preTransform   = PhysicalDeviceSwapchainProperties.Capabilities.currentTransform;
         createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
         createInfo.clipped        = VK_TRUE;
         createInfo.oldSwapchain   = VK_NULL_HANDLE;
@@ -727,6 +739,7 @@ class App
         CreateImageViews();
         CreateRenderPass();
         CreateGraphicsPipelines();
+        CreateColorImage();
         CreateDepthImage();
         CreateFrameBuffers();
         CreateVertexBuffer();
@@ -736,36 +749,53 @@ class App
 
     void CreateRenderPass()
     {
-        VkAttachmentDescription colorAttachment{};
-        colorAttachment.format         = SwapchainFormat;
-        colorAttachment.samples        = VK_SAMPLE_COUNT_1_BIT;
-        colorAttachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        colorAttachment.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
-        colorAttachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        colorAttachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
-        colorAttachment.finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        VkAttachmentDescription ColorAttachment{};
+        ColorAttachment.format         = SwapchainFormat;
+        ColorAttachment.samples        = SampleCount;
+        ColorAttachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        ColorAttachment.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+        ColorAttachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        ColorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        ColorAttachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+        ColorAttachment.finalLayout    = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        VkAttachmentDescription ColorAttachmentResolve{};
+        ColorAttachmentResolve.format         = SwapchainFormat;
+        ColorAttachmentResolve.samples        = VK_SAMPLE_COUNT_1_BIT;
+        ColorAttachmentResolve.loadOp         = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        ColorAttachmentResolve.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+        ColorAttachmentResolve.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        ColorAttachmentResolve.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        ColorAttachmentResolve.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+        ColorAttachmentResolve.finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
         VkAttachmentDescription DepthAttachment{};
-        DepthAttachment.format        = DepthImageFormat;
-        DepthAttachment.samples       = VK_SAMPLE_COUNT_1_BIT;
-        DepthAttachment.loadOp        = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        DepthAttachment.storeOp       = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        DepthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        DepthAttachment.finalLayout   = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        DepthAttachment.format         = DepthImageFormat;
+        DepthAttachment.samples        = SampleCount;
+        DepthAttachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        DepthAttachment.storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        DepthAttachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        DepthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        DepthAttachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+        DepthAttachment.finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-        VkAttachmentReference colorAttachmentRef{};
-        colorAttachmentRef.attachment = 0;
-        colorAttachmentRef.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        VkAttachmentReference ColorAttachmentRef{};
+        ColorAttachmentRef.attachment = 0;
+        ColorAttachmentRef.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
         VkAttachmentReference DepthAttachmentRef{};
         DepthAttachmentRef.attachment = 1;
         DepthAttachmentRef.layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
+        VkAttachmentReference ColorAttachmentResolveRef{};
+        ColorAttachmentResolveRef.attachment = 2;
+        ColorAttachmentResolveRef.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
         VkSubpassDescription subpass{};
         subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
         subpass.colorAttachmentCount    = 1;
-        subpass.pColorAttachments       = &colorAttachmentRef;
+        subpass.pColorAttachments       = &ColorAttachmentRef;
+        subpass.pResolveAttachments     = &ColorAttachmentResolveRef;
         subpass.pDepthStencilAttachment = &DepthAttachmentRef;
 
         VkSubpassDependency dependency{};
@@ -776,7 +806,7 @@ class App
         dependency.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
         dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
-        VkAttachmentDescription Attachments[]{ colorAttachment, DepthAttachment };
+        VkAttachmentDescription Attachments[]{ ColorAttachment, DepthAttachment, ColorAttachmentResolve };
 
         VkRenderPassCreateInfo renderPassInfo{};
         renderPassInfo.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
@@ -798,13 +828,13 @@ class App
         VkPipelineShaderStageCreateInfo VertexShaderStage{};
         VertexShaderStage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         VertexShaderStage.stage  = VK_SHADER_STAGE_VERTEX_BIT;
-        VertexShaderStage.module = CreateShaderModule( "../shaders/shader.vert.spv" );
+        VertexShaderStage.module = CreateShaderModule( "shaders/shader.vert.spv" );
         VertexShaderStage.pName  = "main";
 
         VkPipelineShaderStageCreateInfo FragmentShaderStage{};
         FragmentShaderStage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         FragmentShaderStage.stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
-        FragmentShaderStage.module = CreateShaderModule( "../shaders/shader.frag.spv" );
+        FragmentShaderStage.module = CreateShaderModule( "shaders/shader.frag.spv" );
         FragmentShaderStage.pName  = "main";
 
         ShaderStage = { VertexShaderStage, FragmentShaderStage };
@@ -848,7 +878,9 @@ class App
         VkPipelineMultisampleStateCreateInfo Multisampling{};
         Multisampling.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
         Multisampling.sampleShadingEnable  = VK_FALSE;
-        Multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+        Multisampling.rasterizationSamples = SampleCount;
+        Multisampling.sampleShadingEnable  = VK_TRUE;
+        Multisampling.minSampleShading     = .4f;
 
         VkPipelineDepthStencilStateCreateInfo DepthStencilStateCreateInfo{};
         DepthStencilStateCreateInfo.sType            = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
@@ -949,14 +981,14 @@ class App
         SwapchainFrameBuffers.resize( SwapchainImgsView.size() );
         for( size_t i{ 0 }; i < SwapchainImgsView.size(); i++ )
         {
-            VkImageView Attachments[]{ SwapchainImgsView[ i ], DepthImageView };
+            VkImageView Attachments[]{ ColorImageView, DepthImageView, SwapchainImgsView[ i ] };
             VkFramebufferCreateInfo FrameBufferCreateInfo{};
             FrameBufferCreateInfo.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
             FrameBufferCreateInfo.renderPass      = RenderPass;
             FrameBufferCreateInfo.attachmentCount = sizeof( Attachments ) / sizeof( Attachments[ 0 ] );
             FrameBufferCreateInfo.pAttachments    = Attachments;
-            FrameBufferCreateInfo.width           = PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.width;
-            FrameBufferCreateInfo.height          = PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.height;
+            FrameBufferCreateInfo.width           = PhysicalDeviceSwapchainProperties.Capabilities.currentExtent.width;
+            FrameBufferCreateInfo.height          = PhysicalDeviceSwapchainProperties.Capabilities.currentExtent.height;
             FrameBufferCreateInfo.layers          = 1;
             VkResult Result{ vkCreateFramebuffer( LogicalDevice, &FrameBufferCreateInfo, nullptr, &SwapchainFrameBuffers[ i ] ) };
             if( Result != VK_SUCCESS )
@@ -1193,11 +1225,25 @@ class App
         return VK_FORMAT_UNDEFINED;
     }
 
+    void CreateColorImage()
+    {
+        VkImageCreateInfo ImageCreateInfo{};
+        ImageCreateInfo.samples = SampleCount;
+        ImageCreateInfo.format  = SwapchainFormat;
+        CreateImage( PhysicalDeviceSwapchainProperties.Capabilities.currentExtent.width, PhysicalDeviceSwapchainProperties.Capabilities.currentExtent.height, VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_IMAGE_TILING_OPTIMAL, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, ImageCreateInfo, ColorImage, ColorImageMemory, 0 );
+        ColorImageView = CreateImageView( ColorImage, SwapchainFormat, VK_IMAGE_ASPECT_COLOR_BIT, {} );
+    }
+
+    void CreateColorImageSampler()
+    {
+    }
+
     void CreateDepthImage()
     {
         VkImageCreateInfo ImageCreateInfo{};
-        ImageCreateInfo.format = DepthImageFormat;
-        CreateImage( PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.width, PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.height, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_TILING_OPTIMAL, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, ImageCreateInfo, DepthImage, DepthImageMemory, 0 );
+        ImageCreateInfo.format  = DepthImageFormat;
+        ImageCreateInfo.samples = SampleCount;
+        CreateImage( PhysicalDeviceSwapchainProperties.Capabilities.currentExtent.width, PhysicalDeviceSwapchainProperties.Capabilities.currentExtent.height, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_TILING_OPTIMAL, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, ImageCreateInfo, DepthImage, DepthImageMemory, 0 );
         DepthImageView = CreateImageView( DepthImage, DepthImageFormat, VK_IMAGE_ASPECT_DEPTH_BIT, {} );
         ImageTransition( DepthImage, DepthImageFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, {} );
     }
@@ -1206,7 +1252,7 @@ class App
     {
         const char *path{ "textures/img.png" };
         int imgW, imgH, imgCs;
-        stbi_uc *content{ stbi_load( std::format( "{}../{}", PATH_PREFIX, path ).c_str(), &imgW, &imgH, &imgCs, STBI_rgb_alpha ) };
+        stbi_uc *content{ stbi_load( std::format( "../{}", path ).c_str(), &imgW, &imgH, &imgCs, STBI_rgb_alpha ) };
         if( !content )
         {
             _CriticalThrow( std::format( "Failed to load texture [{}]", path ) );
@@ -1222,7 +1268,6 @@ class App
         //     case 4:
         //         Format = VK_FORMAT_R8G8B8A8_SRGB;
         //         break;
-
         //     default:
         //         _CriticalThrow( std::format( "Unsupported image layers count; count:{}", std::to_string( imgCs ) ) );
         //         break;
@@ -1275,7 +1320,7 @@ class App
         TextureImageView                                = CreateImageView( TextureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, ImageViewCreateInfo );
     }
 
-    void CreateTextureSempler()
+    void CreateTextureSampler()
     {
         VkSamplerCreateInfo SamplerCreateInfo{};
         SamplerCreateInfo.sType     = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -1379,9 +1424,9 @@ class App
             std::vector<uint32_t> mIndecies;
             VkBufferCopy sVerteciesCopy{};
             VkBufferCopy sIndeciesCopy{};
-            if( !tinyobj::LoadObj( &attrib, &shapes, &materials, &warn, &err, std::format( "{}../{}", PATH_PREFIX, Path->first ).c_str() ) )
+            if( !tinyobj::LoadObj( &attrib, &shapes, &materials, &warn, &err, std::format( "../{}", Path->first ).c_str() ) )
             {
-                _CriticalThrow( std::format( "Failed to Load model {}:\nwarning:\t{}\nerror:\t{}.", std::format( "{}../{}", PATH_PREFIX, Path->first ).c_str(), warn, err ) );
+                _CriticalThrow( std::format( "Failed to Load model {}:\nwarning:\t{}\nerror:\t{}.", std::format( "../{}", Path->first ).c_str(), warn, err ) );
             }
             if( warn.length() )
                 SPDLOG_WARN( "Warn with load model {}:{}", Path->first, warn );
@@ -1602,7 +1647,7 @@ class App
         RenderPassBeginInfo.renderPass        = RenderPass;
         RenderPassBeginInfo.framebuffer       = SwapchainFrameBuffers[ imI ];
         RenderPassBeginInfo.renderArea.offset = { 0, 0 };
-        RenderPassBeginInfo.renderArea.extent = PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent;
+        RenderPassBeginInfo.renderArea.extent = PhysicalDeviceSwapchainProperties.Capabilities.currentExtent;
         VkClearValue ClsClrImgBuffer{ 0.68f, .0f, 1.f, 1.f };
         VkClearValue ClsClrDepthImgBuffer{};
         ClsClrDepthImgBuffer.depthStencil = { 1.f, 0 };
@@ -1616,15 +1661,15 @@ class App
         VkViewport Viewport{};
         Viewport.x        = .0f;
         Viewport.y        = .0f;
-        Viewport.width    = static_cast<float>( PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.width );
-        Viewport.height   = static_cast<float>( PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent.height );
+        Viewport.width    = static_cast<float>( PhysicalDeviceSwapchainProperties.Capabilities.currentExtent.width );
+        Viewport.height   = static_cast<float>( PhysicalDeviceSwapchainProperties.Capabilities.currentExtent.height );
         Viewport.minDepth = .0f;
         Viewport.maxDepth = 1.f;
         vkCmdSetViewport( commandBuffer, 0, 1, &Viewport );
 
         VkRect2D Scissor{};
         Scissor.offset = { 0, 0 };
-        Scissor.extent = PhysiacalDeviceSwapchainProperties.Capabilities.currentExtent;
+        Scissor.extent = PhysicalDeviceSwapchainProperties.Capabilities.currentExtent;
         vkCmdSetScissor( commandBuffer, 0, 1, &Scissor );
 
         const VkBuffer _VertexBuffers[]{ VertexBuffer };
