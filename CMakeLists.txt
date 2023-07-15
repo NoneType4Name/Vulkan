@@ -1,4 +1,4 @@
-# conan run via coma: conan install . -of=build --build=missing -pr=debug20
+# conan install . -of=build -b=missing -pr=std20 -s build_type=Debug -s compiler.cppstd=20
 cmake_minimum_required(VERSION 3.4)
 set(CMAKE_CXX_STANDARD 20)
 project("SomeApp"
