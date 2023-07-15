@@ -15,8 +15,7 @@
             "displayName": "default preset for project.",
             "description": "Used 'Visual Studio 17 2022' generator.",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug",
-                "CMAKE_POLICY_DEFAULT_CMP0091": "NEW"
+                "CMAKE_BUILD_TYPE": "Debug"
             }
         },
         {
@@ -24,8 +23,7 @@
             "name": "Release",
             "displayName": "Release preset for project.",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Release",
-                "CMAKE_POLICY_DEFAULT_CMP0091": "NEW"
+                "CMAKE_BUILD_TYPE": "Release"
             }
         },
         {
@@ -33,8 +31,7 @@
             "name": "Debug",
             "displayName": "Debug preset for project.",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug",
-                "CMAKE_POLICY_DEFAULT_CMP0091": "NEW"
+                "CMAKE_BUILD_TYPE": "Debug"
             }
         },
         {
@@ -42,8 +39,7 @@
             "name": "RelWithDebInfo",
             "displayName": "RelWithDebInfo preset for project.",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-                "CMAKE_POLICY_DEFAULT_CMP0091": "NEW"
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo"
             }
         },
         {
@@ -51,8 +47,7 @@
             "name": "MinSizeRel",
             "displayName": "MinSizeRel preset for project.",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "MinSizeRel",
-                "CMAKE_POLICY_DEFAULT_CMP0091": "NEW"
+                "CMAKE_BUILD_TYPE": "MinSizeRel"
             }
         }
     ],
@@ -63,76 +58,76 @@
         {
             "name": "CleanBuild",
             "cleanFirst": true
-        },        
+        },
         {
             "name": "BuildDefault",
-            "inherits":"Build",
+            "inherits": "Build",
             "displayName": "Build",
-            "configurePreset":"default",
-            "configuration":"Debug"
+            "configurePreset": "default",
+            "configuration": "Debug"
         },
         {
             "name": "CleanBuildDefault",
-            "inherits":"CleanBuild",
+            "inherits": "CleanBuild",
             "displayName": "Clean ReBuild",
-            "configurePreset":"default",
-            "configuration":"Debug"
+            "configurePreset": "default",
+            "configuration": "Debug"
         },
         {
             "name": "BuildRelease",
-            "inherits":"Build",
+            "inherits": "Build",
             "displayName": "Build",
-            "configurePreset":"Release",
-            "configuration":"Release"
+            "configurePreset": "Release",
+            "configuration": "Release"
         },
         {
             "name": "CleanBuildRelease",
-            "inherits":"CleanBuild",
+            "inherits": "CleanBuild",
             "displayName": "Clean ReBuild",
-            "configurePreset":"Release",
-            "configuration":"Release"
+            "configurePreset": "Release",
+            "configuration": "Release"
         },
         {
             "name": "BuildDebug",
-            "inherits":"Build",
+            "inherits": "Build",
             "displayName": "Build",
-            "configurePreset":"Debug",
-            "configuration":"Debug"
+            "configurePreset": "Debug",
+            "configuration": "Debug"
         },
         {
             "name": "CleanBuildDebug",
-            "inherits":"CleanBuild",
+            "inherits": "CleanBuild",
             "displayName": "Clean ReBuild",
-            "configurePreset":"Debug",
-            "configuration":"Debug"
+            "configurePreset": "Debug",
+            "configuration": "Debug"
         },
         {
             "name": "BuildRelWithDebInfo",
-            "inherits":"Build",
+            "inherits": "Build",
             "displayName": "Build",
-            "configurePreset":"RelWithDebInfo",
-            "configuration":"Debug"
+            "configurePreset": "RelWithDebInfo",
+            "configuration": "Debug"
         },
         {
             "name": "CleanBuildRelWithDebInfo",
-            "inherits":"CleanBuild",
+            "inherits": "CleanBuild",
             "displayName": "Clean ReBuild",
-            "configurePreset":"RelWithDebInfo",
-            "configuration":"Release"
+            "configurePreset": "RelWithDebInfo",
+            "configuration": "Release"
         },
         {
             "name": "BuildMinSizeRel",
-            "inherits":"Build",
+            "inherits": "Build",
             "displayName": "Build",
-            "configurePreset":"MinSizeRel",
-            "configuration":"Release"
+            "configurePreset": "MinSizeRel",
+            "configuration": "Release"
         },
         {
             "name": "CleanBuildMinSizeRel",
-            "inherits":"CleanBuild",
+            "inherits": "CleanBuild",
             "displayName": "Clean ReBuild",
-            "configurePreset":"MinSizeRel",
-            "configuration":"Release"
+            "configurePreset": "MinSizeRel",
+            "configuration": "Release"
         }
     ]
 }
