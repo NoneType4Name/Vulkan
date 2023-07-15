@@ -2,13 +2,13 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Launch",
-            "type": "lldb",
+            "type": "cppvsdbg",
             "request": "launch",
-            // Resolved by CMake Tools:
+            "name": "Debug",
             "program": "${command:cmake.launchTargetPath}",
-            "args": ["qwerty"],
-            "cwd": "${workspaceFolder}/bin/"
+            "args": [],
+            "cwd": "${workspaceFolder}/bin/",
+            "console": "integratedTerminal"
         }
     ]
 }
