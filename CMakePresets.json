@@ -10,7 +10,7 @@
     },
     "configurePresets": [
         {
-            "inherits": "conan-default",
+            "inherits": "conan-debug",
             "name": "default",
             "displayName": "default preset for project.",
             "description": "Used 'Visual Studio 17 2022' generator.",
