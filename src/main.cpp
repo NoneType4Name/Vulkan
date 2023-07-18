@@ -2,7 +2,6 @@
 
 int main( int argc, char *argv[] )
 {
-    SPDLOG_CRITICAL( "ARGS: {}", argc );
     std::vector<std::pair<const char *, const char *>> ModelsPaths{
         { "models/model.obj", "test" } };
     try

@@ -1,5 +1,6 @@
 # conan install . -of=build -b=missing -pr=std20 -s build_type=Debug -s compiler.cppstd=20
-cmake_minimum_required(VERSION 3.4)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+cmake_minimum_required(VERSION 3.5)
 set(CMAKE_CXX_STANDARD 20)
 project("SomeApp"
         LANGUAGES CXX
@@ -45,9 +46,7 @@ find_package(tinyobjloader)
 find_package(stb)
 # find_package(assimp)
 
-add_executable(${EXECUTABLE_NAME} ${PROJECT_SRC})
-add_dependencies(${EXECUTABLE_NAME} Shaders)
-
+add_executable(${EXECUTABLE_NAME} src/main.cpp)
 target_link_libraries(${EXECUTABLE_NAME} Vulkan::Vulkan)
 target_include_directories(${EXECUTABLE_NAME} PUBLIC ${glfw3_INCLUDE_DIRS})
 target_link_libraries(${EXECUTABLE_NAME} glfw)
@@ -57,3 +56,4 @@ target_link_libraries(${EXECUTABLE_NAME} spdlog::spdlog)
 target_link_libraries(${EXECUTABLE_NAME} tinyobjloader::tinyobjloader)
 target_link_libraries(${EXECUTABLE_NAME} stb::stb)
 # target_link_libraries(${EXECUTABLE_NAME} imgui::imgui)
+

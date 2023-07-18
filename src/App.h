@@ -1,25 +1,11 @@
-#pragma once
-#define TINYOBJLOADER_IMPLEMENTATION
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#define STB_IMAGE_IMPLEMENTATION
-#define GLFW_INCLUDE_VULKAN
-#if defined( WIN32 )
-#    define VK_USE_PLATFORM_WIN32_KHR
-#    define GLFW_EXPOSE_NATIVE_WIN32
-#elif defined( __LINUX__ )
-#    define VK_USE_PLATFORM_X11_KHR
-#    define GLFW_EXPOSE_NATIVE_X11
-#endif
-
 #ifdef _DEBUG
 #    define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 const bool APP_DEBUG = true;
 #else
 #    define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_CRITICAL
-
 const bool APP_DEBUG = false;
 #endif
+
 #include <map>
 #include <set>
 #include <limits>
@@ -35,16 +21,8 @@ const bool APP_DEBUG = false;
 #include <iostream>
 #include <stdexcept>
 #include <algorithm>
-#include <stb_image.h>
-#include <glm/glm.hpp>
-#include <GLFW/glfw3.h>
 #include <spdlog/spdlog.h>
-#include <glm/gtx/hash.hpp>
-#include <tiny_obj_loader.h>
-#include <GLFW/glfw3native.h>
-#include <spdlog/sinks/stdout_sinks.h>
-#include <glm/gtc/matrix_transform.hpp>
-#include <vulkan/vk_enum_string_helper.h>
+#include "vulkan.h"
 
 namespace
 {
@@ -66,7 +44,7 @@ struct _initialize
         }
         catch( const std::exception &logInitE )
         {
-            std::cerr << "Logger initialize error:\t" << logInitE.what() << '\n.';
+            std::cerr << "Logger initialize error:\t" << logInitE.what() << "\n.";
         }
 
         // exit(EXIT_FAILURE);
@@ -336,7 +314,7 @@ class App
     {
         CreateVKinstance();
         SetupDebugMessenger();
-#if defined( WIN32 )
+#if defined( _WIN32 )
         VkWin32SurfaceCreateInfoKHR createInfo{};
         createInfo.sType     = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
         createInfo.hwnd      = glfwGetWin32Window( window );
@@ -1834,7 +1812,7 @@ class App
                 StrMessageType = string_VkDebugUtilsMessageTypeFlagsEXT( MessageType );
                 break;
         }
-        switch( MessageLevel )
+        switch( static_cast<uint32_t>( MessageLevel ) )
         {
             case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
                 SPDLOG_DEBUG( "{}message: {}", ( MessageType == VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT ? "" : format( "Type: {}, ", StrMessageType ) ), CallbackData->pMessage );
