@@ -1,4 +1,4 @@
-# conan install . -of=build -b=missing -pr=std20 -s build_type=Debug -s compiler.cppstd=20
+# conan install . -of=build -b=missing -pr=std20 -s build_type=Debug -s compiler.cppstd=20 -s compiler=clang -s compiler.version=16 --conf tools.cmake.cmaketoolchain:generator=Ninja
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 cmake_minimum_required(VERSION 3.5)
 set(CMAKE_CXX_STANDARD 20)
