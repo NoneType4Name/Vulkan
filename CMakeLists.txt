@@ -6,7 +6,7 @@ project("SomeApp"
         LANGUAGES CXX
         VERSION 0.0.1
         )
-
+# include(cmake/GenerateEmbedFiles.cmake)
 set(EXECUTABLE_NAME "window")
 message("${CMAKE_PROJECT_NAME} ${CMAKE_PROJECT_VERSION}\n${CMAKE_PROJECT_DESCRIPTION}")
 
