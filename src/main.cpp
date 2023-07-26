@@ -1,9 +1,11 @@
-#include "App.h"
+#include "app.h"
+#include <spdlog/spdlog.h>
 
 int main( int argc, char *argv[] )
 {
     std::vector<std::pair<const char *, const char *>> ModelsPaths{
-        { "models/model.obj", "test" } };
+        { "models/plate.obj", "model" },
+        { "models/test.obj", "test" } };
     try
     {
         App app{ 0, 0, "HV", ModelsPaths };
@@ -14,7 +16,8 @@ int main( int argc, char *argv[] )
         SPDLOG_CRITICAL( "{}\n Exit with error code {}.", e.what(), EXIT_FAILURE );
         return EXIT_FAILURE;
     }
-    SPDLOG_INFO( "Exit with code {}.", EXIT_SUCCESS );
+    INFO_CALLBACK( "Exit with code {}.", EXIT_SUCCESS );
+    // SPDLOG_INFO( "Exit with code {}.", EXIT_SUCCESS );
     return EXIT_SUCCESS;
 }
 
