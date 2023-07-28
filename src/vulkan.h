@@ -122,7 +122,6 @@ struct hash<Vertex>
 class VulkanInstance
 {
   public:
-    uint32_t a{ 1 };
 #if defined( _WIN32 )
     VulkanInstance( HWND hwnd, HINSTANCE instance, LoggerCallbacks LoggerCallback ) : Loggers{ LoggerCallback }
     {
@@ -135,24 +134,29 @@ class VulkanInstance
             vkEnumerateInstanceLayerProperties( &_c, nullptr );
             VkLayerProperties *AviableLayers = new VkLayerProperties[ _c ];
             vkEnumerateInstanceLayerProperties( &_c, AviableLayers );
-            // for( const char *lName : ValidationLayers )
-            // {
-            //     bool SupportLayer = false;
-            //     for( const auto &AlName : AviableLayers )
-            //     {
-            //         if( !strcmp( lName, AlName.layerName ) )
-            //         {
-            //             SupportLayer = true;
-            //             break;
-            //         }
-            //     }
-            //     if( !SupportLayer )
-            //     {
-            //         SPDLOG_CRITICAL( "Validation layer {} isn't support.", lName );
-            //         return false;
-            //     }
-            // }
-            // return true;
+            size_t c{ sizeof( ValidationLayers ) / sizeof( ValidationLayers[ 0 ] ) };
+            std::vector<const char *> NotAvilableLayers{ c };
+            memcpy( &NotAvilableLayers[ 0 ], ValidationLayers, sizeof( ValidationLayers ) );
+            for( size_t i{ 0 }; i < c; i++ )
+            {
+                for( uint32_t _i{ 0 }; _i < _c; _i++ )
+                    if( !strcmp( NotAvilableLayers[ c - 1 - i ], AviableLayers[ _i ].layerName ) )
+                    {
+                        NotAvilableLayers.erase( NotAvilableLayers.end() - i - 1 );
+                        break;
+                    }
+                if( NotAvilableLayers.empty() )
+                    break;
+            }
+            if( !NotAvilableLayers.empty() )
+            {
+                std::string Err = std::format( "Not finded validation layers: {}:\n", std::to_string( NotAvilableLayers.size() ) );
+                for( const auto VL : NotAvilableLayers )
+                {
+                    Err += std::format( "\t {}\n", VL );
+                }
+                LoggerCallback.critical( Err.c_str() );
+            }
 #if defined( _WIN32 )
             VkWin32SurfaceCreateInfoKHR Win32SurfaceCreateInfo{
                 VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
@@ -182,7 +186,6 @@ class VulkanInstance
       private:
         // Custom
         const char *ValidationLayers[ 1 ] = { "VK_LAYER_KHRONOS_validation" };
-
         // System
         LoggerCallbacks Loggers;
         VkSurfaceKHR Screen;
