@@ -1,10 +1,14 @@
-# conan install . -of=build -b=missing -pr=std20 -s build_type=Debug -s compiler.cppstd=20 -s compiler=clang -s compiler.libcxx=libc++ -s compiler.version=16 --conf tools.cmake.cmaketoolchain:generator=Ninja
+# conan install . -of=build -b=missing -pr=std20 -s build_type=Debug -s compiler.cppstd=20 -s compiler=clang -s compiler.version=16 --conf tools.cmake.cmaketoolchain:generator=Ninja
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_C_COMPILER clang)
+set(CMAKE_CXX_COMPILER clang++)
 cmake_minimum_required(VERSION 3.5)
+add_compile_options(-stdlib=libc++)
+add_link_options(-stdlib=libc++)
 set(CMAKE_CXX_STANDARD 20)
 project("SomeApp"
         LANGUAGES CXX
-        VERSION 0.0.1
+        VERSION 0.0.0.1
         )
 # include(cmake/GenerateEmbedFiles.cmake)
 set(EXECUTABLE_NAME "window")

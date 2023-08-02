@@ -134,18 +134,18 @@ class App
         glfwSetWindowUserPointer( window, this );
         glfwSetFramebufferSizeCallback( window, FramebufferResizeCallback );
         glfwSetWindowSizeCallback( window, WindwoResizeCallback );
-        static VulkanInstance VkApi{ glfwGetWin32Window( window ), GetModuleHandle( nullptr ), { []( const char *data )
-                                                                                                 { TRACE_CALLBACK( data ); },
-                                                                                                 []( const char *data )
-                                                                                                 { DEBUG_CALLBACK( data ); },
-                                                                                                 []( const char *data )
-                                                                                                 { INFO_CALLBACK( data ); },
-                                                                                                 []( const char *data )
-                                                                                                 { WARN_CALLBACK( data ); },
-                                                                                                 []( const char *data )
-                                                                                                 { ERROR_CALLBACK( data ); },
-                                                                                                 []( const char *data )
-                                                                                                 { CRITICAL_CALLBACK( data ); } } };
+        static VulkanInstance VkApi{ "HelloVulkan", VK_MAKE_VERSION( 0, 0, 0 ), glfwGetWin32Window( window ), GetModuleHandle( nullptr ), { []( const char *data )
+                                                                                                                                            { TRACE_CALLBACK( data ); },
+                                                                                                                                            []( const char *data )
+                                                                                                                                            { DEBUG_CALLBACK( data ); },
+                                                                                                                                            []( const char *data )
+                                                                                                                                            { INFO_CALLBACK( data ); },
+                                                                                                                                            []( const char *data )
+                                                                                                                                            { WARN_CALLBACK( data ); },
+                                                                                                                                            []( const char *data )
+                                                                                                                                            { ERROR_CALLBACK( data ); },
+                                                                                                                                            []( const char *data )
+                                                                                                                                            { CRITICAL_CALLBACK( data ); } } };
 
         Vulkan = &VkApi;
     };

@@ -1,3 +1,4 @@
+#include <vulkan/vulkan_core.h>
 #define TINYOBJLOADER_IMPLEMENTATION
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -123,13 +124,21 @@ class VulkanInstance
 {
   public:
 #if defined( _WIN32 )
-    VulkanInstance( HWND hwnd, HINSTANCE instance, LoggerCallbacks LoggerCallback ) : Loggers{ LoggerCallback }
+    VulkanInstance( const char *AppName, uint32_t AppVersion, HWND hwnd, HINSTANCE instance, LoggerCallbacks LoggerCallback ) : Loggers{ LoggerCallback }
     {
 #endif
 #if defined( __LINUX__ )
-        VulkanInstance( Display dpy, Window window, LoggerCallbacks LoggerCallback ) : Loggers{ LoggerCallback }
+        VulkanInstance( const char *AppName, uint32_t AppVersion, Display dpy, Window window, LoggerCallbacks LoggerCallback ) : Loggers{ LoggerCallback }
         {
 #endif
+            Loggers.info( "Initialize Vulkan.h::VulkanInstance class." );
+            VkInstanceCreateInfo InstanceCreateInfo{};
+            InstanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+            uint32_t glfwExtensionsCount{ 0 };
+            const char **glfwExtensions = glfwGetRequiredInstanceExtensions( &glfwExtensionsCount );
+            std::vector<const char *> glfwExtensionsVector( glfwExtensions, glfwExtensions + glfwExtensionsCount );
+
+#ifdef _DEBUG
             uint32_t _c;
             vkEnumerateInstanceLayerProperties( &_c, nullptr );
             VkLayerProperties *AviableLayers = new VkLayerProperties[ _c ];
@@ -157,6 +166,37 @@ class VulkanInstance
                 }
                 LoggerCallback.critical( Err.c_str() );
             }
+
+            VkValidationFeatureEnableEXT enabled[]{ VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT };
+            VkValidationFeaturesEXT ValidationFeatures{};
+            ValidationFeatures.sType                         = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
+            ValidationFeatures.enabledValidationFeatureCount = sizeof( enabled ) / sizeof( enabled[ 0 ] );
+            ValidationFeatures.pEnabledValidationFeatures    = enabled;
+
+            VkDebugUtilsMessengerCreateInfoEXT DebugUtilsMessengerCreateInfoEXT{};
+            InstanceCreateInfo.pNext                         = &DebugUtilsMessengerCreateInfoEXT;
+            DebugUtilsMessengerCreateInfoEXT.sType           = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+            DebugUtilsMessengerCreateInfoEXT.pNext           = &ValidationFeatures;
+            DebugUtilsMessengerCreateInfoEXT.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+            DebugUtilsMessengerCreateInfoEXT.messageType     = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+            DebugUtilsMessengerCreateInfoEXT.pfnUserCallback = DebugCallback;
+            DebugUtilsMessengerCreateInfoEXT.pUserData       = this;
+            glfwExtensionsVector.push_back( VK_EXT_DEBUG_UTILS_EXTENSION_NAME );
+            InstanceCreateInfo.enabledLayerCount   = sizeof( ValidationLayers ) / sizeof( ValidationLayers[ 0 ] );
+            InstanceCreateInfo.ppEnabledLayerNames = ValidationLayers;
+
+#endif
+            InstanceCreateInfo.enabledExtensionCount   = static_cast<uint32_t>( glfwExtensionsVector.size() );
+            InstanceCreateInfo.ppEnabledExtensionNames = glfwExtensionsVector.data();
+            VkApplicationInfo ApplicationInfo{};
+            InstanceCreateInfo.pApplicationInfo = &ApplicationInfo;
+            ApplicationInfo.sType               = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+            ApplicationInfo.engineVersion       = 0;
+            ApplicationInfo.apiVersion          = VK_API_VERSION_1_0;
+            ApplicationInfo.pApplicationName    = AppName;
+            ApplicationInfo.applicationVersion  = AppVersion;
+            VkResult Result{ vkCreateInstance( &InstanceCreateInfo, nullptr, &Instance ) };
+
 #if defined( _WIN32 )
             VkWin32SurfaceCreateInfoKHR Win32SurfaceCreateInfo{
                 VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
@@ -164,7 +204,7 @@ class VulkanInstance
                 0,
                 instance,
                 hwnd };
-            // Result = vkCreateWin32SurfaceKHR( Instance, &Win32SurfaceCreateInfo, nullptr, &Screen );
+            Result = vkCreateWin32SurfaceKHR( Instance, &Win32SurfaceCreateInfo, nullptr, &Screen );
 #endif
 #if defined( __LINUX__ )
 
@@ -174,22 +214,65 @@ class VulkanInstance
                 0,
                 &dpy,
                 &window };
-            VkResult Result{ vkCreateXlibSurfaceKHR( Instance, &XlibSurfaceCreateInfoKHR, nullptr, &Screen ) };
+            Result = vkCreateXlibSurfaceKHR( Instance, &XlibSurfaceCreateInfoKHR, nullptr, &Screen )
+        };
 #endif
 
-            // if( Result != VK_SUCCESS )
-            // {
-            //     Loggers.critical( "Failed to Create Win32 Surface, error" );
-            // }
+        if( Result != VK_SUCCESS )
+        {
+            Loggers.critical( "Failed to Create Surface, error" );
         }
+    }
 
-      private:
-        // Custom
-        const char *ValidationLayers[ 1 ] = { "VK_LAYER_KHRONOS_validation" };
-        // System
-        LoggerCallbacks Loggers;
-        VkSurfaceKHR Screen;
-        VkInstance Instance;
-        VkDevice LogicalDevice;
-        VkPhysicalDevice PhysicalDevice;
-    };
+  private:
+    // Custom
+    const char *ValidationLayers[ 1 ] = { "VK_LAYER_KHRONOS_validation" };
+    // System
+    LoggerCallbacks Loggers;
+    VkSurfaceKHR Screen;
+    VkInstance Instance;
+    VkDevice LogicalDevice;
+    VkPhysicalDevice PhysicalDevice;
+
+    static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
+        VkDebugUtilsMessageSeverityFlagBitsEXT MessageLevel,
+        VkDebugUtilsMessageTypeFlagsEXT MessageType,
+        const VkDebugUtilsMessengerCallbackDataEXT *CallbackData,
+        void *UserData )
+    {
+        VulkanInstance *Vulkan = static_cast<VulkanInstance *>( UserData );
+        std::string StrMessageType;
+        switch( MessageType )
+        {
+            case VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT:
+                StrMessageType = "GeneralError";
+                break;
+            case VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT:
+                StrMessageType = "SpecificationError";
+                break;
+            case VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT:
+                StrMessageType = "MisuseVulkanApiError";
+                break;
+
+            default:
+                StrMessageType = string_VkDebugUtilsMessageTypeFlagsEXT( MessageType );
+                break;
+        }
+        switch( static_cast<uint32_t>( MessageLevel ) )
+        {
+            case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
+                Vulkan->Loggers.debug( std::format( "{}message: {}", ( MessageType == VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT ? "" : format( "Type: {}, ", StrMessageType ) ), CallbackData->pMessage ).c_str() );
+                break;
+            case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
+                Vulkan->Loggers.info( std::format( "{}message: {}", ( MessageType == VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT ? "" : format( "Type: {}, ", StrMessageType ) ), CallbackData->pMessage ).c_str() );
+                break;
+            case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
+                Vulkan->Loggers.warn( std::format( "{}message: {}", ( MessageType == VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT ? "" : format( "Type: {}, ", StrMessageType ) ), CallbackData->pMessage ).c_str() );
+                break;
+            case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
+                Vulkan->Loggers.critical( std::format( "{}message: {}", ( MessageType == VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT ? "" : format( "Type: {}, ", StrMessageType ) ), CallbackData->pMessage ).c_str() );
+                break;
+        }
+        return VK_FALSE;
+    }
+};

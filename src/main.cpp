@@ -16,8 +16,8 @@ int main( int argc, char *argv[] )
         SPDLOG_CRITICAL( "{}\n Exit with error code {}.", e.what(), EXIT_FAILURE );
         return EXIT_FAILURE;
     }
-    INFO_CALLBACK( "Exit with code {}.", EXIT_SUCCESS );
-    // SPDLOG_INFO( "Exit with code {}.", EXIT_SUCCESS );
+    // INFO_CALLBACK( "Exit with code {}.", EXIT_SUCCESS );
+    SPDLOG_INFO( "Exit with code {}.", EXIT_SUCCESS );
     return EXIT_SUCCESS;
 }
 
