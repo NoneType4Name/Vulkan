@@ -11,7 +11,6 @@ const bool APP_DEBUG = false;
 #include <limits>
 #include <vector>
 #include <array>
-#include <format>
 #include <chrono>
 #include <string>
 #include <cstdlib>
@@ -40,7 +39,6 @@ void CriticalLogsCatch( const T &msg )
     spdlog::default_logger_raw()->critical( msg );
     throw std::runtime_error( msg );
 }
-
 #define TRACE_CALLBACK    spdlog::trace
 #define DEBUG_CALLBACK    spdlog::debug
 #define INFO_CALLBACK     spdlog::info

@@ -11,15 +11,6 @@
     "configurePresets": [
         {
             "inherits": "conan-debug",
-            "name": "default",
-            "displayName": "default preset for project.",
-            "description": "Used 'Visual Studio 17 2022' generator.",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug"
-            }
-        },
-        {
-            "inherits": "default",
             "name": "Release",
             "displayName": "Release preset for project.",
             "cacheVariables": {
@@ -27,7 +18,7 @@
             }
         },
         {
-            "inherits": "default",
+            "inherits": "conan-debug",
             "name": "Debug",
             "displayName": "Debug preset for project.",
             "cacheVariables": {
@@ -35,7 +26,7 @@
             }
         },
         {
-            "inherits": "default",
+            "inherits": "conan-debug",
             "name": "RelWithDebInfo",
             "displayName": "RelWithDebInfo preset for project.",
             "cacheVariables": {
@@ -43,7 +34,7 @@
             }
         },
         {
-            "inherits": "default",
+            "inherits": "conan-debug",
             "name": "MinSizeRel",
             "displayName": "MinSizeRel preset for project.",
             "cacheVariables": {
@@ -60,17 +51,17 @@
             "cleanFirst": true
         },
         {
-            "name": "BuildDefault",
+            "name": "conan-BuildDefault",
             "inherits": "Build",
             "displayName": "Build",
-            "configurePreset": "default",
+            "configurePreset": "conan-debug",
             "configuration": "Debug"
         },
         {
-            "name": "CleanBuildDefault",
+            "name": "conan-CleanBuildDefault",
             "inherits": "CleanBuild",
             "displayName": "Clean ReBuild",
-            "configurePreset": "default",
+            "configurePreset": "conan-debug",
             "configuration": "Debug"
         },
         {
