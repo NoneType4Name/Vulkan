@@ -1,4 +1,4 @@
-#include <vulkan/vulkan_core.h>
+#include <string>
 #define TINYOBJLOADER_IMPLEMENTATION
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -23,10 +23,11 @@
 #include <array>
 #include <vector>
 #include <format>
+#include <set>
 
 typedef void ( *LoggerCallback )( const char *data );
 
-typedef struct LoggerCallbacks
+struct LoggerCallbacks
 {
     LoggerCallback trace;
     LoggerCallback debug;
@@ -34,13 +35,20 @@ typedef struct LoggerCallbacks
     LoggerCallback warn;
     LoggerCallback error;
     LoggerCallback critical;
-} LoggerCallbacks;
+};
 
-struct SwapChainProperties
+// Structurs
+
+struct QueueFamilyIndices
 {
-    VkSurfaceCapabilitiesKHR Capabilities;
-    std::vector<VkSurfaceFormatKHR> Format;
-    std::vector<VkPresentModeKHR> PresentModes;
+    std::optional<uint32_t> graphic;
+    std::optional<uint32_t> present;
+    std::optional<uint32_t> transfer;
+
+    bool isComplete()
+    {
+        return graphic.has_value() && present.has_value() && transfer.has_value();
+    }
 };
 
 struct SwapChain
@@ -49,6 +57,8 @@ struct SwapChain
     VkSurfaceCapabilitiesKHR Capabilitie;
     VkFormat Format;
     VkPresentModeKHR PresentMode;
+    std::vector<VkSurfaceFormatKHR> AviliableFormat;
+    std::vector<VkPresentModeKHR> AviliablePresentModes;
 };
 
 struct Vertex
@@ -105,6 +115,20 @@ struct DemensionsUniformrObject
     alignas( 16 ) glm::mat4 proj;
 };
 
+struct PhysicalDevice
+{
+    VkPhysicalDevice Device;
+    SwapChain swapchain;
+    VkPhysicalDeviceProperties Properties;
+    VkPhysicalDeviceFeatures Features;
+    QueueFamilyIndices Indecies;
+    std::vector<VkQueueFamilyProperties> QueueFamilies;
+    std::vector<VkExtensionProperties> AviliableExtensions;
+    std::vector<uint16_t> UsingExtensions;
+};
+
+// Structurs end
+
 namespace std
 {
 template <>
@@ -131,6 +155,7 @@ class VulkanInstance
         VulkanInstance( const char *AppName, uint32_t AppVersion, Display dpy, Window window, LoggerCallbacks LoggerCallback ) : Loggers{ LoggerCallback }
         {
 #endif
+            // Init surface.
             Loggers.info( "Initialize Vulkan.h::VulkanInstance class." );
             VkInstanceCreateInfo InstanceCreateInfo{};
             InstanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -222,17 +247,107 @@ class VulkanInstance
         {
             Loggers.critical( "Failed to Create Surface, error" );
         }
+
+        // init surface end.
+
+        uint32_t PhysicalDevicesCount{ 0 };
+        vkEnumeratePhysicalDevices( Instance, &PhysicalDevicesCount, nullptr );
+        if( !PhysicalDevicesCount )
+            Loggers.critical( "Failed to Find someone GPU/CPU, with supported grapchic card." );
+        VkPhysicalDevice *Devices = new VkPhysicalDevice[ PhysicalDevicesCount ];
+        Result                    = vkEnumeratePhysicalDevices( Instance, &PhysicalDevicesCount, Devices );
+        if( Result != VK_SUCCESS )
+            Loggers.critical( std::format( "Failed to write Devices data at memory, Devices count: {}", std::to_string( PhysicalDevicesCount ) ).c_str() );
+        for( uint32_t device{ 0 }; device < PhysicalDevicesCount; device++ )
+        {
+            printf( "%s\n", std::to_string( SuitableDevice( Devices[ device ] ) ).c_str() );
+        }
+        delete[] Devices;
     }
 
   private:
     // Custom
-    const char *ValidationLayers[ 1 ] = { "VK_LAYER_KHRONOS_validation" };
+    const char *ValidationLayers[ 1 ]{ "VK_LAYER_KHRONOS_validation" };
+    const char *NecessDeviceExtensions[ 2 ]{ VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME };
     // System
     LoggerCallbacks Loggers;
     VkSurfaceKHR Screen;
     VkInstance Instance;
     VkDevice LogicalDevice;
     VkPhysicalDevice PhysicalDevice;
+
+    float SuitableDevice( VkPhysicalDevice device )
+    {
+        std::vector<uint8_t> mark{};
+        struct PhysicalDevice Device;
+        uint32_t QueueCount{ 0 };
+        uint32_t ExtensionsCount{ 0 };
+        vkGetPhysicalDeviceProperties( device, &Device.Properties );
+        vkGetPhysicalDeviceFeatures( device, &Device.Features );
+        vkEnumerateDeviceExtensionProperties( device, nullptr, &ExtensionsCount, nullptr );
+        vkGetPhysicalDeviceQueueFamilyProperties( device, &QueueCount, nullptr );
+        Device.QueueFamilies.resize( QueueCount );
+        Device.AviliableExtensions.resize( ExtensionsCount );
+        vkGetPhysicalDeviceQueueFamilyProperties( device, &QueueCount, Device.QueueFamilies.data() );
+        vkEnumerateDeviceExtensionProperties( device, nullptr, &ExtensionsCount, Device.AviliableExtensions.data() );
+        // Type
+        switch( Device.Properties.deviceType )
+        {
+            case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
+                mark.push_back( 5 );
+                break;
+            case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
+                mark.push_back( 4 );
+                break;
+            case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:
+                mark.push_back( 2 );
+                break;
+            case VK_PHYSICAL_DEVICE_TYPE_CPU:
+                mark.push_back( 1 );
+                break;
+            default:
+                mark.push_back( 0 );
+                break;
+        } // Type
+
+        // Necess
+        if( !Device.Features.geometryShader ) return 0;
+        // Necess
+
+        // Features
+        if( Device.Features.samplerAnisotropy ) mark.push_back( 2 );
+        // Features
+
+        for( uint32_t index{ 0 }; index < QueueCount; index++ )
+        {
+            // Necess
+            if( !Device.Indecies.isComplete() )
+            {
+                VkBool32 presentSupport{ 0 };
+                vkGetPhysicalDeviceSurfaceSupportKHR( device, index, Screen, &presentSupport );
+                if( Device.QueueFamilies[ index ].queueFlags & VK_QUEUE_GRAPHICS_BIT ) Device.Indecies.graphic = index;
+                if( Device.QueueFamilies[ index ].queueFlags & VK_QUEUE_TRANSFER_BIT ) Device.Indecies.transfer = index;
+                if( presentSupport ) Device.Indecies.present = index;
+            }
+            // Necess
+        }
+        if( !Device.Indecies.isComplete() ) return 0;
+
+        size_t necessExts{ sizeof( NecessDeviceExtensions ) / sizeof( NecessDeviceExtensions[ 0 ] ) };
+        std::set<std::string> Ext{ &NecessDeviceExtensions[ 0 ], &NecessDeviceExtensions[ necessExts ] };
+        for( uint32_t i{ 0 }; i < Device.AviliableExtensions.size(); i++ )
+        {
+            // Necess
+            if( Ext.empty() ) break;
+            Ext.erase( Device.AviliableExtensions[ i ].extensionName );
+            // Necess
+        }
+        if( !Ext.empty() ) return 0;
+
+        float ret{ 0.f };
+        for( auto i : mark ) ret += i;
+        return ret / mark.size();
+    }
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
         VkDebugUtilsMessageSeverityFlagBitsEXT MessageLevel,
